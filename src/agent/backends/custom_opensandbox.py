@@ -60,6 +60,7 @@ class OpenSandboxBackend(BaseSandbox):
         """
         effective_timeout = timeout if timeout is not None else self._timeout
         full_command = f"export PATH=\"{self.SANDBOX_PATH}:$PATH\" && {command}"
+        # 一段时间后杀死对象，用来限制进程时间
         opts = RunCommandOpts(timeout=timedelta(seconds=effective_timeout))
 
         logger.debug("执行命令: %s，timeout=%d", command, effective_timeout)
@@ -70,6 +71,7 @@ class OpenSandboxBackend(BaseSandbox):
             logger.exception("命令执行异常: %s", command)
             return ExecuteResponse(output="沙箱命令执行失败", exit_code=None)
 
+        #提取标准输出与标准错误，并合并输出
         stdout = ""
         if execution.logs.stdout:
             stdout = "\n".join(line.text for line in execution.logs.stdout)
