@@ -50,13 +50,24 @@ def _validate_subagent_config(data: dict) -> list[str]:
     return missing_requirements
 
 
-def tools_load() ->list[tools]:
+def tools_load(yaml_path: Path | None = None) ->list[tools]:
     """
     对工具进行校验，比对已有工具和智能体配置文件中的工具是否一致，将工具载入子智能体中，返回工具列表，并且对缺失的工具进行提示
     returns:
         list[tools]: 工具
     """
-    pass
+    tools_list = []
+    subagents = load_yaml(yaml_path)
+    for subagent in subagents:
+        if not subagent.get("tools"):
+            logger.warning(f"子智能体{subagent['name']}未配置工具")
+            return tools_list
+        for tool in subagent["tools"]:
+            
+            
+            
+
+    
             
 
                     
