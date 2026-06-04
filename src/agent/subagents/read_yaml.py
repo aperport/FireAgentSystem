@@ -2,7 +2,7 @@
 读取agents中的yaml文件，将其转化为create_deep_agent()方法中的subagents参数，
 且过程中可能需要对skills、tools及mcp等进行校验，确定系统中存在工具和技能等。
 """
-
+from langchain.tools import BaseTool
 from pathlib import Path
 import yaml
 from mcp_server import tools
@@ -50,19 +50,40 @@ def _validate_subagent_config(data: dict) -> list[str]:
     return missing_requirements
 
 
-def tools_load(yaml_path: Path | None = None) ->list[tools]:
+
+def resolve_tools(subagent_config:dict,tool_map:dict[str,BaseTool])->list[BaseTool]:
     """
-    对工具进行校验，比对已有工具和智能体配置文件中的工具是否一致，将工具载入子智能体中，返回工具列表，并且对缺失的工具进行提示
+    根据YAML配置文件从tool_map中解析出实际工具列表工具
+    args:
+       subagent_config: 子智能体配置文件
+       tool_map: 工具映射
     returns:
-        list[tools]: 工具
-    """
-    tools_list = []
-    subagents = load_yaml(yaml_path)
-    for subagent in subagents:
-        if not subagent.get("tools"):
-            logger.warning(f"子智能体{subagent['name']}未配置工具")
-            return tools_list
-        for tool in subagent["tools"]:
+       list[BaseTool]: 工具
+    """ 
+    tools_config = subagent_config.get("tools",{})
+    selected_tools = set()
+
+   # 1. 先进行组匹配
+    if "group" in tools_config:
+        group_name = tools_config["group"]
+        for name,tool in tool_map.items():  #items()返回字典中的键值对
+           #通过匹配开头拿到工具集合
+            if name.startswith(f"{group_name}_"):
+               selected_tools.add(tool)
+
+   # 2. 再进行名称匹配
+    if "include" in tools_config:
+       for name in tools_config["include"]:
+           if name in tool_map:
+               selected_tools.add(tool_map[name])
+    return [tool for tool in selected_tools ]
+
+def make_
+
+
+               
+           
+
             
             
             
