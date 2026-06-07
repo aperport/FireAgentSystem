@@ -227,6 +227,43 @@ class MemoryUpdateMiddleware(AgentMiddleware):
            key = f"/{user_id}/preferences.md"
 
            try:
+               item = await store.aget(namespace, key)
+           except Exception as e:
+               item = None
+
+            # 7.解析现有内容或者创建默认内容
+           current_lines:list[str] = []
+           if item and hasattr(item,"value"):
+               value = item.value
+               if isinstance(value, dict):
+                   content = value.get("content", [])
+                   if isinstance(content, list):
+                       current_lines = content.split("\n") # type: ignore
+                   elif isinstance(content, str):
+                        current_lines = content.split("\n") # type: ignore
+               elif isinstance(value, str):
+                    current_lines = value.split("\n") # type: ignore
+            # 内部调用，下面方法使用了self，此处也要使用self调用，不然下边方法不要写self
+           updated_content = self._merge_preferences(
+                current_lines, suppliers, query
+            )
+
+            # 8.更新记忆
+           file_value = tools._create_file_value(updated_content) # type: ignore
+           await store.aput(namespace, key, file_value)
+           logger.info(f"已更新记忆，供应商：{suppliers}, 查询：{query}")
+       except Exception as e:
+           logger.warning(f"MemoryUpdateMiddleware: 更新失败，{e},跳过本次更新", exc_info=True,)
+
+       return None
+   def _merge_preferences(self, current_lines: list[str], suppliers: list[str], query: str):
+        """
+        合并用户偏好
+        """
+        pass
+                
+                
+               
                
 
            
