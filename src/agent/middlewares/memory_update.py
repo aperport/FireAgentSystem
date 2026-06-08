@@ -217,7 +217,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                return None
            logger.info(f"已提取实体，供应商：{suppliers}, 查询：{query}")
 
-           # 6.更新记忆
+           # 6.从 StoreBackend 中读取用户已有的偏好文件。
            store = getattr(runtime, "store", None)
            if not store:
                logger.warning("MemoryUpdateMiddleware: 未找到 StoreBackend，跳过本次更新")
@@ -238,11 +238,11 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                if isinstance(value, dict):
                    content = value.get("content", [])
                    if isinstance(content, list):
-                       current_lines = content.split("\n") # type: ignore
+                       current_lines = content  # content 已经是 list[str]
                    elif isinstance(content, str):
-                        current_lines = content.split("\n") # type: ignore
+                        current_lines = content.split("\n")
                elif isinstance(value, str):
-                    current_lines = value.split("\n") # type: ignore
+                    current_lines = value.split("\n")
             # 内部调用，下面方法使用了self，此处也要使用self调用，不然下边方法不要写self
            updated_content = self._merge_preferences(
                 current_lines, suppliers, query
@@ -258,10 +258,27 @@ class MemoryUpdateMiddleware(AgentMiddleware):
        return None
    def _merge_preferences(self, current_lines: list[str], suppliers: list[str], query: str):
         """
-        合并用户偏好
+        将新的用户偏好合并至其中
+        策略：先移除旧 recent_suppliers / recent_queries 区块，再在末尾追加合并后的版本。
+        args:
+            current_lines: 
+            suppliers: 
+            query:
         """
-        pass
-                
+
+        # 1.解析旧的偏好
+        ex_suppliers = []
+        ex_queries = []
+        def _parse_list_items(lines: list[str], start_idx: int):
+            """
+            从start_idx开始解析列表项
+            """
+            items:list[str] = []
+            title_line = lines[start_idx].strip()
+
+
+
+  
                 
                
                
