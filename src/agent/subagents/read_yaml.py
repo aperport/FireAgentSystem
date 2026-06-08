@@ -22,13 +22,13 @@ def load_yaml(yaml_path: Path | None = None) :
             logger.info(f"加载 {yaml_file}")
             try:
                 with open(yaml_file, "r", encoding="utf-8") as f:
-                    conment = yaml.safe_load(f)
+                    content = yaml.safe_load(f)
                     # 对必填项进行校验
-                    missing_requirements = _validate_subagent_config(conment)
+                    missing_requirements = _validate_subagent_config(content)
                     if missing_requirements:
                         logger.warning(f"子智能体{yaml_file.name}配置文件缺少必填项：{missing_requirements}")
                         continue
-                    subagents.append(conment)
+                    subagents.append(content)
             except Exception as e:
                 logger.warning(f"子智能体{yaml_file.name}加载失败，原因：{e}")
     return subagents
@@ -61,54 +61,49 @@ def resolve_tools(subagent_config:dict,tool_map:dict[str,BaseTool])->list[BaseTo
     returns:
        list[BaseTool]: 工具
     """ 
-    try:
-        tools_config = subagent_config.get("tools",{})
-        selected_tools = set()
+    tools_config = subagent_config.get("tools",{})
+    selected_tools = set()
 
-    # 1. 先进行组匹配
-        if "group" in tools_config:
-            group_name = tools_config["group"]
-            for name,tool in tool_map.items():  #items()返回字典中的键值对
-            #通过匹配开头拿到工具集合
-                if name.startswith(f"{group_name}_"):
-                    selected_tools.add(tool)
+   # 1. 先进行组匹配
+    if "group" in tools_config:
+        group_name = tools_config["group"]
+        for name,tool in tool_map.items():  #items()返回字典中的键值对
+           #通过匹配开头拿到工具集合
+            if name.startswith(f"{group_name}_"):
+               selected_tools.add(tool)
 
-    # 2. 再进行名称匹配
-        if "include" in tools_config:
-            for name in tools_config["include"]:
-                if name in tool_map:
-                    selected_tools.add(tool_map[name])
-        return [tool for tool in selected_tools ]
-    except Exception as e:
-        logger.error(f"子智能体配置文件解析失败，原因：{e}")
-        return []
+   # 2. 再进行名称匹配
+    if "include" in tools_config:
+       for name in tools_config["include"]:
+           if name in tool_map:
+               selected_tools.add(tool_map[name])
+    return [tool for tool in selected_tools ]
 
-async def assemble_subagents(subagents: list | None = None,tool_map:dict[str,BaseTool] | None = None)->list:
+
+
+async def assemble_subagent(subagents:list | None=None,tool_map:dict[str,BaseTool] | None=None) -> list:
     """
-    组装子智能体，读取后，需要对子智能体的工具进行重新载入，作为真正的工具
+    目前加载后的子智能体中工具仅有名称，此方法对将实例工具与子智能体进行组装，实现功能
     args:
-        subagents: 子智能体列表，工具为名称
-        tool_map: 工具映射
+       subagents: 子智能体列表
+       tool_map: 工具映射
     returns:
-        list: 子智能体列表
+       list: 子智能体集合
     """
-    subagent_list = []
-    # 获取子智能体列表和工具列表，之后从子智能体中解析出工具，将工具装入智能体的字典，组成新列表，传给主agent
     if not subagents:
-        logger.info("子智能体为空，从agents目录下加载子智能体")
-        subagents = load_yaml()
+        subagents  = load_yaml()
+        logger.info(f"已加载子智能体：{subagents}")
     if not tool_map:
-        logger.info("工具为空，从MCP加载工具")
         tool_map = await load_mcp_tools()
+        logger.info(f"已加载工具：{tool_map}")
     try:
+        new_subagents = []
         for subagent in subagents: 
-            subaagent_tools:list[BaseTool] = resolve_tools(subagent,tool_map)
-            logger.info(f"已加载子智能体：{subagent['name']}")
-            subagent["tools"] = subaagent_tools
-            subagent_list.append(subagent)
-            logger.info(f"子智能体：{subagent['name']}加载完成")
+            subagent_tools = resolve_tools(subagent,tool_map)
+            subagent["tools"] = subagent_tools
+            logger.info(f"已组装子智能体工具：{subagent.get('name')}")
+            new_subagents.append(subagent)
+        return new_subagents
     except Exception as e:
-        logger.error(f"子智能体加载失败，原因：{e}")
-    return subagent_list
-            
-    
+        logger.error(f"子智能体组装失败，原因：{e}")
+        return []
