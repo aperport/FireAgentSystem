@@ -11,7 +11,7 @@ Agent 无需手动维护 recent_suppliers / recent_queries —— 系统自动�
 import json
 from typing import Any, Dict
 from datetime import datetime, timezone
-from langchain.agents.middleware.types import AgentState, Runtime
+from langchain.agents.middleware.types import AgentState
 from langchain_core.messages import BaseMessage
 from langchain.chat_models import BaseChatModel
 from unitl_tools.logger import get_logger
