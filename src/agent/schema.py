@@ -84,7 +84,7 @@ class Session(BaseModel):
 
 class SessionListResponse(BaseModel):
     """会话列表响应模型"""
-    sessions: List[Session] = Field(default_factory=list, description="会话列表")
+    sessions: list[Session] = Field(default_factory=list, description="会话列表")
     total: int = Field(0, description="总会话数")
     page: int = Field(1, description="当前页码")
     limit: int = Field(20, description="每页数量")
@@ -93,7 +93,7 @@ class SessionListResponse(BaseModel):
 class SessionMessagesResponse(BaseModel):
     """会话消息历史响应模型"""
     thread_id: str = Field(..., description="会话 ID")
-    messages: List[Message] = Field(default_factory=list, description="消息列表")
+    messages: list[Message] = Field(default_factory=list, description="消息列表")
 
 
 class DeleteSessionResponse(BaseModel):

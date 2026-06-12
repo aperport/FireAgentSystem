@@ -5,6 +5,7 @@
 
 
 
+import asyncio
 import logging
 import os
 import sys
@@ -18,7 +19,7 @@ from agent.schema import ProcurementContext
 from agent.tools import assign_skills
 from memoy.prompts import system_prompt
 from agent.backends.sandbox_setup import setup_sandbox
-from agent.config import LOCAL_AGENTS_MD
+from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, SKILLS_STORE_NAMESPACE, STORE, SUMMARY_MODEL
 from agent.middleware_config import create_analyst_middleware, create_order_middleware
 from agent.middlewares.context_injection import ContextInjectionMiddleware
 from agent.middlewares.memory_update import MemoryUpdateMiddleware
@@ -79,7 +80,7 @@ async def create_main_agent(
         sandbox_backend =  setup_sandbox(config=config, sandbox_id=sandbox_id)
     except Exception as e:
         logger.error(f"创建主Agent失败，原因：{e}")
-        raise RuntimeError(f"因沙箱配置失败，无法构建智能体")
+        raise RuntimeError("因沙箱配置失败，无法构建智能体")
     
     # 上传Agent.md到沙箱
     logger.info("正在上传Agent.md到沙箱")
@@ -114,7 +115,7 @@ async def create_main_agent(
         logger.info("MCP工具加载完成")
     except Exception as e:
         logger.error(f"MCP工具加载失败，原因：{e}")
-        raise RuntimeError(f"因MCP工具加载失败，无法构建智能体")
+        raise RuntimeError("因MCP工具加载失败，无法构建智能体")
     
     # 创建技能管理工具 
     assign_skill = assign_skills.create_assign_skill_tool(
@@ -140,7 +141,7 @@ async def create_main_agent(
         logger.info("子Agent加载完成")
     except Exception as e:
         logger.error(f"子Agent加载失败，原因：{e}")
-        raise RuntimeError(f"因子Agent加载失败，无法构建智能体")
+        raise RuntimeError("因子Agent加载失败，无法构建智能体")
 
     # 创建子Agent中间件,此处使用了子智能体，需根据实际业务设置
     logger.info("开始创建子Agent中间件")  
@@ -166,7 +167,7 @@ async def create_main_agent(
         ]
     except Exception as e:
         logger.error(f"主Agent中间件创建失败，原因：{e}")
-        raise RuntimeError(f"因主Agent中间件创建失败，无法构建智能体")
+        raise RuntimeError("因主Agent中间件创建失败，无法构建智能体")
     logger.info("主Agent中间件创建完成")
 
     # 创建主Agent
@@ -187,7 +188,7 @@ async def create_main_agent(
         )
     except Exception as e:
         logger.error(f"主Agent创建失败，原因：{e}")
-        raise RuntimeError(f"因主Agent创建失败，无法构建智能体")
+        raise RuntimeError("因主Agent创建失败，无法构建智能体")
     logger.info("主Agent创建完成")
     return main_agent
 
@@ -195,6 +196,105 @@ async def create_main_agent(
 # Agent 懒加载代理（兼容同步/异步两种初始化场景）
 async def get_main_agent():
     return await create_main_agent()
+
+
+
+class _AngentProxy:
+    """
+    懒加载代理类
+    兼容同步异步两种环境
+    1. 同步环境：在模块导入后，事件循环启动前初始化
+    2. 异步环境：使用FastAPI时，通过get_agent_async（）在事件循环启动前初始化
+    """
+
+    def __init__(self):
+        self._agent = None
+
+    
+    @property  #使用时不用（），作为属性；  实现延迟加载
+    def _is_intialized(self):
+        """
+        懒加载，检查是否已经初始化
+        """
+        return self._agent is not None
+    
+    def _ensure_initialized(self):
+        """
+        确保已经初始化
+        如果没有运行中的事件循环，使用 asyncio.run() 创建 agent。
+        如果事件循环正在运行，抛出 RuntimeError 提示使用 get_agent_async()。
+        """
+
+        if  self._agent:
+            return self._agent
+        
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                raise RuntimeError("请使用 get_agent_async()")
+        except RuntimeError as e:
+            if "Agent 尚未初始化" in str(e):
+                raise
+
+        self._agent = asyncio.run(create_main_agent())
+        return self._agent
+    
+    def __getattr__(self, name):
+        return getattr(self._ensure_initialized(), name)
+    
+    def __repr__(self):
+        if not self._agent:
+            return "<AgentProxy (not initialized)>"
+        return repr(self._agent)
+
+# agent 实例，初始化为懒加载代理，由 get_agent() / get_agent_async() 函数触发初始化
+agent = _AngentProxy()
+
+
+def get_agent():
+    """
+    获取 Agent 对象,增加懒加载方式
+    如果Agent尚未创建，则同步创建他
+    """
+    global agent    # 声明全局变量，而非举报变量
+    if isinstance(agent, _AngentProxy):
+        if agent._is_intialized:
+            return agent
+        return agent._ensure_initialized()
+    return agent
+
+
+async def get_agent_async():
+    """
+        异步获取 agent 实例，懒加载方式
+
+        适用于在事件循环中运行时调用（如 FastAPI 的 lifespan）。
+        如果 agent 已通过 get_agent() 同步初始化，则直接返回。
+
+        Returns:
+            CompiledStateGraph: Agent 实例
+    """
+    global agent
+    if isinstance(agent, _AngentProxy):
+        if agent._is_intialized:
+            return agent
+        agent._agent = await create_main_agent()
+        return agent._agent
+    return agent
+
+
+
+
+
+
+
+  
+
+
+        
+
+
+
 
 
 
