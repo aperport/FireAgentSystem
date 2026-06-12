@@ -193,11 +193,66 @@ async def create_main_agent(
     return main_agent
 
 
+# ============================================================
 # Agent 懒加载代理（兼容同步/异步两种初始化场景）
-async def get_main_agent():
+# ============================================================
+
+async def _create_agent():
+    """创建 Agent 实例（供 _AgentProxy 调用）"""
     return await create_main_agent()
 
 
+class _AgentProxy:
+    """
+    懒加载 Agent 代理类
+
+    兼容以下两种使用场景：
+    1. 同步环境（如 agent_test.py 控制台）：在模块导入后、事件循环启动前初始化
+    2. 异步环境（如 FastAPI 后端）：通过 get_agent_async() 在事件循环中初始化
+
+    当直接访问 agent 对象的属性/方法时，代理会自动触发初始化并委托调用。
+    """
+
+    def __init__(self):
+        self._agent = None
+
+    @property
+    def _is_initialized(self):
+        """检查底层 agent 是否已初始化"""
+        return self._agent is not None
+
+    def _ensure_initialized(self):
+        """
+        确保 agent 已初始化（同步方式）
+
+        如果没有运行中的事件循环，使用 asyncio.run() 创建 agent。
+        如果事件循环正在运行，抛出 RuntimeError 提示使用 get_agent_async()。
+        """
+        if self._agent is not None:
+            return self._agent
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                raise RuntimeError(
+                    "Agent 尚未初始化且当前在事件循环中，"
+                    "请使用 await get_agent_async() 获取 agent"
+                )
+        except RuntimeError as e:
+            if "Agent 尚未初始化" in str(e):
+                raise
+            # 没有事件循环，继续初始化
+
+        self._agent = asyncio.run(_create_agent())
+        return self._agent
+
+    def __getattr__(self, name):
+        return getattr(self._ensure_initialized(), name)
+
+    def __repr__(self):
+        if self._agent is None:
+            return "<AgentProxy (not initialized)>"
+        return repr(self._agent)
 
 class _AngentProxy:
     """
@@ -299,5 +354,42 @@ async def get_agent_async():
 
 
 
+# agent 实例，初始化为懒加载代理，由 get_agent() / get_agent_async() 函数触发初始化
+agent = _AgentProxy()
 
-    
+
+def get_agent():
+    """
+    获取 agent 实例，懒加载方式（同步）
+
+    如果 agent 尚未初始化，则同步创建它。
+    注意：不能在运行中的事件循环内调用此函数。
+
+    Returns:
+        CompiledStateGraph: Agent 实例
+    """
+    global agent
+    if isinstance(agent, _AgentProxy):
+        if agent._is_initialized:
+            return agent._agent
+        return agent._ensure_initialized()
+    return agent
+
+
+async def get_agent_async():
+    """
+    异步获取 agent 实例，懒加载方式
+
+    适用于在事件循环中运行时调用（如 FastAPI 的 lifespan）。
+    如果 agent 已通过 get_agent() 同步初始化，则直接返回。
+
+    Returns:
+        CompiledStateGraph: Agent 实例
+    """
+    global agent
+    if isinstance(agent, _AgentProxy):
+        if agent._is_initialized:
+            return agent._agent
+        agent._agent = await _create_agent()
+        return agent._agent
+    return agent

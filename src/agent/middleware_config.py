@@ -12,6 +12,10 @@ from langchain.agents.middleware import (
     ToolCallLimitMiddleware,
 )
 
+from unitl_tools.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def create_analyst_middleware(model, backend) -> list:
     """
