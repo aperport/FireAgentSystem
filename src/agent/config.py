@@ -4,7 +4,8 @@ from pathlib import Path
 
 from agent.llm_config import DeepSeek_LLM
 from langgraph.store.memory import InMemoryStore
-
+from langgraph.checkpoint.mongodb import MongoDBSaver
+from pymongo import MongoClient
 
 LOCAL_SKILLS_DIR = "skills"
 # 沙箱skills文件夹路径
@@ -28,8 +29,12 @@ SCOPE_MAP = {
 SUMMARY_MODEL = DeepSeek_LLM
 
 # 记忆存储，此处存到了内存，实际应该持久化
-STORE = InMemoryStore
+STORE = InMemoryStore()
 
 
 # 
-CHECKPOINT =
+CHECKPOINT =MongoDBSaver(
+    client=_mongodb_client,
+    db_name=MONGODB_DB_NAME,
+    checkpoint_collection_name=MONGODB_CHECKPOINT_COLLECTION,
+)
