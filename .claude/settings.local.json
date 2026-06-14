@@ -8,7 +8,9 @@
       "WebSearch",
       "WebFetch(domain:reference.langchain.com)",
       "WebFetch(domain:github.com)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Bash(xxd \"E:/study/PythonProject/DeepAgentsDemo2/src/mcp_server/server_main.py\")",
+      "Bash(set PYTHONPATH=src)"
     ]
   }
 }

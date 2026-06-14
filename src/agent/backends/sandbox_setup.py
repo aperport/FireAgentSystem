@@ -1,8 +1,18 @@
 """
-opensandbox沙箱的初始化，以及文件播种模块
-作用：
-1.创建或者获取沙箱
-2.存入skills文件
+OpenSandbox 沙箱初始化与文件播种模块。
+
+功能：
+    1. 创建或重连已有沙箱
+    2. 播种 skills 文件到沙箱（管理助手自定义分析场景用）
+    3. 创建 Python venv + 安装依赖
+
+沙箱用途（新项目）：
+    - 管理助手(fire-management-analyst)的自定义计算和可视化
+    - 代码执行（如生成能耗趋势图表）
+    - AGENTS.md 文件存储
+
+对外接口：
+    setup_sandbox(config, sandbox_id) -> OpenSandboxBackend
 """
 import os
 import shlex
@@ -11,6 +21,7 @@ from opensandbox import SandboxSync
 from opensandbox.config import ConnectionConfigSync
 
 from src.agent.backends.custom_opensandbox import OpenSandboxBackend
+from agent.config import LOCAL_SKILLS_DIR
 from unitl_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -18,21 +29,34 @@ logger = get_logger(__name__)
 # 沙箱内 skills 文件存放目录
 SANDBOX_SKILLS_DIR = "/opt/skills"
 
-def setup_sandbox(config, sandbox_id=None, image=None) -> OpenSandboxBackend:
+# OpenSandbox 连接配置（从环境变量读取）
+OPENSANDBOX_API_KEY = os.getenv("OPENSANDBOX_API_KEY", "")
+OPENSANDBOX_DOMAIN = os.getenv("OPENSANDBOX_DOMAIN", "api.opensandbox.io")
+OPENSANDBOX_IMAGE = os.getenv("OPENSANDBOX_IMAGE", "ubuntu")
+
+
+def setup_sandbox(config=None, sandbox_id=None, image=None) -> OpenSandboxBackend:
     """
     尝试按照id重连沙箱，若未找到，或者沙箱已失效，则创建一个新的沙箱，并将技能文件播种到沙箱中，以及python必要的环境变量
     和依赖，并返回一个OpenSandboxBackend对象
     Args:
-        config: 配置对象，需包含 api_key、domain、skills_dir 属性
+        config: LangGraph RunnableConfig（可选，不再依赖其 api_key/skills_dir 属性）
         sandbox_id: 沙箱id，如果不传则创建一个新的沙箱
         image: 沙箱镜像，如果不传则使用默认镜像
     Returns:
         OpenSandboxBackend对象
     """
+    # 优先从 config 获取，回退到环境变量/默认值
+    api_key = getattr(config, "api_key", None) or OPENSANDBOX_API_KEY
+    domain = getattr(config, "domain", None) or OPENSANDBOX_DOMAIN
+    skills_dir = getattr(config, "skills_dir", None) or LOCAL_SKILLS_DIR
+
+    if not api_key:
+        raise RuntimeError("OpenSandbox API Key 未配置，请设置环境变量 OPENSANDBOX_API_KEY")
+
     connection_config = ConnectionConfigSync(
-        domain=getattr(config, "domain", "api.opensandbox.io"),
-        api_key=config.api_key,
-        
+        domain=domain,
+        api_key=api_key,
     )
 
     sandbox = None
@@ -50,7 +74,7 @@ def setup_sandbox(config, sandbox_id=None, image=None) -> OpenSandboxBackend:
             sandbox = None
 
     if sandbox is None:
-        image = image or getattr(config, "image", None) or "ubuntu"
+        image = image or getattr(config, "image", None) or OPENSANDBOX_IMAGE
         logger.info(f"创建新沙箱，镜像: {image}")
         sandbox = SandboxSync.create(
             image=image,
@@ -61,7 +85,7 @@ def setup_sandbox(config, sandbox_id=None, image=None) -> OpenSandboxBackend:
     backend = OpenSandboxBackend(sandbox=sandbox)
 
     _ensure_dirs(backend)
-    _send_skills_files(backend, config.skills_dir)
+    _send_skills_files(backend, skills_dir)
     create_environment_variables(backend)
 
     logger.info(f"沙箱初始化完成: {backend.id}")

@@ -1,8 +1,20 @@
 """
-主Agent入口模块，
-使用deepagents 创建一个示例，将所有组件串联起来，成为一个可运行的智能助手，使用async graph factory的模式，每次调用创建新沙箱
-"""
+消防后勤智能助手 — 主Agent入口模块。
 
+使用 DeepAgents 框架创建主 Agent 协调器，采用 async graph factory 模式。
+主 Agent 负责意图判断和子 Agent 委派：
+    - 知识咨询类问题 → fire-qa-assistant（GraphRAG问答）
+    - 数据管理类问题 → fire-management-analyst（报表评鉴）
+
+初始化流程（9步）：
+    1. 创建沙箱 → 2. 上传AGENTS.md → 3. CompositeBackend分流
+    → 4. MCP工具加载 → 5. 工具池构建 → 6. 子Agent YAML加载+工具解析
+    → 7. 子Agent中间件注入 → 8. 主Agent中间件链组装 → 9. create_deep_agent()
+
+对外接口：
+    get_agent()         — 同步获取Agent实例（懒加载）
+    get_agent_async()   — 异步获取Agent实例（适用于FastAPI等异步环境）
+"""
 
 
 import asyncio
@@ -10,21 +22,21 @@ import logging
 import os
 import sys
 from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StoreBackend
 from langchain_core.runnables import RunnableConfig
 from langchain.agents.middleware import (
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
 )
-from agent.schema import ProcurementContext
-from agent.tools import assign_skills
-from memoy.prompts import system_prompt
+from agent.schema import FireLogisticsContext
+from agent.memory.prompts import system_prompt
 from agent.backends.sandbox_setup import setup_sandbox
 from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, SKILLS_STORE_NAMESPACE, STORE, SUMMARY_MODEL
-from agent.middleware_config import create_analyst_middleware, create_order_middleware
+from agent.middleware_config import create_analyst_middleware
 from agent.middlewares.context_injection import ContextInjectionMiddleware
 from agent.middlewares.memory_update import MemoryUpdateMiddleware
-from agent.middlewares.skills_sync import SkillsSyncMiddleware
-from agent.subagents.read_yaml import assemble_subagents
+
+from agent.subagents.read_yaml import assemble_subagent
 from agent.tools.MCP_client import load_mcp_tools
 
 def _setup_logging() -> None:
@@ -94,19 +106,22 @@ async def create_main_agent(
         # /persisted-skills/  → StoreBackend（按 Agent scope 组织技能）
         # 其余路径（临时文件、代码执行）保留在沙箱。
     logger.info("主Agent创建完成，开始进行分流")
-    backend = lambda rt: CompositeBackend(
-        default=sandbox_backend,
-        routes={
-            "memories": StoreBackend(
-                runtime=rt,
-                namespace=lambda rt : (getattr(rt.runtime.context, 'user_id', 'test'),),
-            ),
-            "persisted-skills": StoreBackend(
-                runtime=rt,
-                namespace=lambda rt : SKILLS_STORE_NAMESPACE,
-            ),
-        }
-    )
+
+    def backend(rt):
+        """根据文件路径前缀将读写请求路由到不同的存储后端"""
+        return CompositeBackend(
+            default=sandbox_backend,
+            routes={
+                "/memories/": StoreBackend(
+                    runtime=rt,
+                    namespace=lambda r: (getattr(r.context, 'user_id', 'laoxiao'),),
+                ),
+                "/persisted-skills/": StoreBackend(
+                    runtime=rt,
+                    namespace=lambda r: SKILLS_STORE_NAMESPACE,
+                ),
+            },
+        )
 
     # MCP工具加载
     logger.info("开始加载MCP工具")
@@ -118,12 +133,7 @@ async def create_main_agent(
         raise RuntimeError("因MCP工具加载失败，无法构建智能体")
     
     # 创建技能管理工具 
-    assign_skill = assign_skills.create_assign_skill_tool(
-        sandbox_backend,
-        store=STORE,
-        skills_namespace=SKILLS_STORE_NAMESPACE,
-    )
-    download_sandbox_file = create_download_tool(sandbox_backend, DOWNLOAD_DIR)
+
     
     # 工具池构建
     logger.info("开始构建工具池")
@@ -132,10 +142,10 @@ async def create_main_agent(
 
     logger.info("工具池构建完成,共计{}个工具".format(len(available_tools)))
 
-    # 子Agent的Yaml加载
+    # 子Agent的Yaml加载（assemble_subagents 是异步函数，需要 await）
     logger.info("开始加载子Agent")
     try:
-        subagents  = assemble_subagents()
+        subagents  = await assemble_subagent()
         if not subagents :
             logger.error("子Agent加载失败，原因：子Agent为空,将使用主智能体运行")
         logger.info("子Agent加载完成")
@@ -144,23 +154,23 @@ async def create_main_agent(
         raise RuntimeError("因子Agent加载失败，无法构建智能体")
 
     # 创建子Agent中间件,此处使用了子智能体，需根据实际业务设置
+    # 子Agent中间件通过 subagent 配置的 middleware 字段传入
     logger.info("开始创建子Agent中间件")  
-    extra_mid = {
-        "procurement-analyst": create_analyst_middleware(SUMMARY_MODEL, backend),   # 缺少大语言模型
-        "procurement-order": create_order_middleware(),        
-    }
-
-    # 子智能体工具解析 ，上边已进行内部解析，此处跳过了
+    analyst_middleware = create_analyst_middleware(SUMMARY_MODEL, backend)
+    # 将中间件注入到对应子Agent配置中
+    for subagent in subagents:
+        if subagent.get("name") == "analyst":
+            subagent["middleware"] = analyst_middleware
 
     
 
     # 主智能体中间件
     logger.info("开始创建主Agent中间件")
+    from agent.middlewares.tools_summarization import build_summarization_middleware
     try:
         main_mid = [
             ContextInjectionMiddleware(),
-            SkillsSyncMiddleware(sandbox_backend),
-            #build_summarization_middleware(backend, SUMMARY_MODEL),
+            build_summarization_middleware(sandbox_backend, SUMMARY_MODEL),
             MemoryUpdateMiddleware(model=SUMMARY_MODEL),
             ModelCallLimitMiddleware(run_limit=50),    # 限制模型调用次数
             ToolCallLimitMiddleware(run_limit=200),    # 限制工具调用次数
@@ -178,13 +188,13 @@ async def create_main_agent(
             system_prompt=system_prompt,
             skills= ["/skills/main/"],
             memory=["/memories/"],    # AGENT.md的文件夹
-            tools =[assign_skill, download_sandbox_file],
-            #subagents=subagents,
+            tools=available_tools,
+            subagents=subagents,
             middleware=main_mid,
             backend=backend,
             store=STORE,   # 持久化 
             checkpointer=CHECKPOINT,
-            context_schema=ProcurementContext    # 传递当前用户信息
+            context_schema=FireLogisticsContext    # 传递当前用户信息
         )
     except Exception as e:
         logger.error(f"主Agent创建失败，原因：{e}")
@@ -254,56 +264,9 @@ class _AgentProxy:
             return "<AgentProxy (not initialized)>"
         return repr(self._agent)
 
-class _AngentProxy:
-    """
-    懒加载代理类
-    兼容同步异步两种环境
-    1. 同步环境：在模块导入后，事件循环启动前初始化
-    2. 异步环境：使用FastAPI时，通过get_agent_async（）在事件循环启动前初始化
-    """
+agent = _AgentProxy()
 
-    def __init__(self):
-        self._agent = None
 
-    
-    @property  #使用时不用（），作为属性；  实现延迟加载
-    def _is_intialized(self):
-        """
-        懒加载，检查是否已经初始化
-        """
-        return self._agent is not None
-    
-    def _ensure_initialized(self):
-        """
-        确保已经初始化
-        如果没有运行中的事件循环，使用 asyncio.run() 创建 agent。
-        如果事件循环正在运行，抛出 RuntimeError 提示使用 get_agent_async()。
-        """
-
-        if  self._agent:
-            return self._agent
-        
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                raise RuntimeError("请使用 get_agent_async()")
-        except RuntimeError as e:
-            if "Agent 尚未初始化" in str(e):
-                raise
-
-        self._agent = asyncio.run(create_main_agent())
-        return self._agent
-    
-    def __getattr__(self, name):
-        return getattr(self._ensure_initialized(), name)
-    
-    def __repr__(self):
-        if not self._agent:
-            return "<AgentProxy (not initialized)>"
-        return repr(self._agent)
-
-# agent 实例，初始化为懒加载代理，由 get_agent() / get_agent_async() 函数触发初始化
-agent = _AngentProxy()
 
 
 def get_agent():
@@ -312,8 +275,8 @@ def get_agent():
     如果Agent尚未创建，则同步创建他
     """
     global agent    # 声明全局变量，而非举报变量
-    if isinstance(agent, _AngentProxy):
-        if agent._is_intialized:
+    if isinstance(agent, _AgentProxy):
+        if agent._is_initialized:
             return agent
         return agent._ensure_initialized()
     return agent
@@ -330,66 +293,9 @@ async def get_agent_async():
             CompiledStateGraph: Agent 实例
     """
     global agent
-    if isinstance(agent, _AngentProxy):
-        if agent._is_intialized:
+    if isinstance(agent, _AgentProxy):
+        if agent._is_initialized:
             return agent
         agent._agent = await create_main_agent()
-        return agent._agent
-    return agent
-
-
-
-
-
-
-
-  
-
-
-        
-
-
-
-
-
-
-
-# agent 实例，初始化为懒加载代理，由 get_agent() / get_agent_async() 函数触发初始化
-agent = _AgentProxy()
-
-
-def get_agent():
-    """
-    获取 agent 实例，懒加载方式（同步）
-
-    如果 agent 尚未初始化，则同步创建它。
-    注意：不能在运行中的事件循环内调用此函数。
-
-    Returns:
-        CompiledStateGraph: Agent 实例
-    """
-    global agent
-    if isinstance(agent, _AgentProxy):
-        if agent._is_initialized:
-            return agent._agent
-        return agent._ensure_initialized()
-    return agent
-
-
-async def get_agent_async():
-    """
-    异步获取 agent 实例，懒加载方式
-
-    适用于在事件循环中运行时调用（如 FastAPI 的 lifespan）。
-    如果 agent 已通过 get_agent() 同步初始化，则直接返回。
-
-    Returns:
-        CompiledStateGraph: Agent 实例
-    """
-    global agent
-    if isinstance(agent, _AgentProxy):
-        if agent._is_initialized:
-            return agent._agent
-        agent._agent = await _create_agent()
         return agent._agent
     return agent

@@ -1,4 +1,14 @@
-from datetime import timedelta
+"""
+OpenSandbox 后端封装 — 适配器模式，将 SandboxSync 封装为 BaseSandbox 协议。
+
+实现 BaseSandbox 接口的方法：
+    - execute()       — 在沙箱中执行命令
+    - upload_files()  — 上传文件到沙箱
+    - download_files() — 从沙箱下载文件
+
+供 CompositeBackend 的 default 路由使用，
+管理助手可在沙箱中执行 Python 代码进行自定义分析。
+"""
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
 from opensandbox import SandboxSync

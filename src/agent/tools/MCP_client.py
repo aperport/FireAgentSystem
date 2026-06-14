@@ -1,9 +1,20 @@
 """
-MCP 工具客户端。
+MCP 工具客户端 — 连接 MCP Server 获取所有可用工具。
 
-在 Agent 启动时连接所有 MCP Server，获取全部 MCP 工具，
-并按分组筛选后分配给不同的子 Agent。
+在 Agent 启动时通过 langchain_mcp_adapters 的 MultiServerMCPClient
+连接 MCP Server（Streamable HTTP），获取全部 MCP 工具。
 
+对外接口：
+    load_mcp_tools() -> dict[str, BaseTool]
+    返回工具名到工具实例的映射，供 assemble_subagents() 分配给子 Agent。
+
+当前 MCP Server 注册的工具：
+    知识检索：graph_rag_search / knowledge_search / graph_query
+    报表评鉴：fire_report_generate / fire_quality_evaluate
+    业务明细：fire_equipment_query / fire_alarm_record_query / fire_inspection_query
+              fire_maintenance_order_query / fire_duty_schedule_query / fire_utility_monitor_query
+
+连接地址从环境变量 MCP_SERVER_URL 读取。
 """
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from unitl_tools.logger import get_logger

@@ -1,6 +1,15 @@
 """
-自定义数据结构定义
-包含运行时上下文文、用户偏好等类型定义
+消防后勤智能助手 — 数据结构定义。
+
+包含运行时上下文、用户偏好、聊天请求/响应、会话管理、SSE流式事件等类型定义。
+
+核心模型：
+    FireLogisticsContext — 运行时用户上下文（user_id, username），替代原 ProcurementContext
+    UserPreferences — 用户偏好（输出格式/语言/近期设备/近期查询），去掉原 currency/suppliers
+    ChatRequest/Response — 聊天请求/响应
+    Message — 消息模型（含工具调用信息）
+    Session/SessionListResponse — 会话历史管理
+    Stream*Event — SSE 流式事件模型
 """
 
 
@@ -8,13 +17,11 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
-
-from openai import BaseModel
-from pydantic import Field
+from pydantic import Field,BaseModel
 
 
 @dataclass   # dataclass自动定义__init__方法
-class ProcurementContext:
+class FireLogisticsContext:
     """
     定义用户信息
     运行时上下文，由调用方法在invoke时传入
@@ -33,13 +40,14 @@ class UserPreferences:
     """
     preferred_output: str | None = None               # 'table' 或 'chart'
     preferred_chart_type: str | None = None           # 'bar', 'line', 'pie' 等
-    preferred_currency: str | None = None             # 'CNY', 'USD' 等
     preferred_language: str | None = None             # 'zh', 'en' 等
-    recent_suppliers: list[str] | None=None           # 近期使用的供应商列表
-    recent_queries: list[str] | None=None             # 近期分析需求摘要列表
+    recent_equipment: list[str] | None = None         # 近期关注的消防设备
+    recent_zones: list[str] | None = None             # 近期关注的建筑区域
+    recent_queries: list[str] | None = None           # 近期分析需求摘要列表
 
     def __post_init__(self):
-        self.recent_suppliers = self.recent_suppliers or []
+        self.recent_equipment = self.recent_equipment or []
+        self.recent_zones = self.recent_zones or []
         self.recent_queries = self.recent_queries or []
 
 class ChatRequest(BaseModel):

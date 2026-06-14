@@ -1,7 +1,16 @@
 """
-子 Agent 中间件配置。
+子 Agent 中间件配置 — 提供子智能体的标准中间件工厂函数。
 
-提供标准中间件的工厂函数，在创建 Agent 时注入。
+当前子智能体：
+    fire-qa-assistant    — 知识问答助手（GraphRAG）
+    fire-management-analyst — 管理分析助手（报表+评鉴）
+
+工厂函数：
+    create_qa_middleware(model, backend) — 问答助手中间件
+    create_analyst_middleware(model, backend) — 管理助手中间件
+
+子 Agent 中间件与主 Agent 中间件独立配置，
+通过 subagent 配置的 middleware 字段传入。
 """
 
 from deepagents.middleware.summarization import (
@@ -39,18 +48,3 @@ def create_analyst_middleware(model, backend) -> list:
         ToolCallLimitMiddleware(run_limit=200),
     ]
 
-
-def create_order_middleware() -> list:
-    """
-    为 procurement-order 子 Agent 创建中间件列表。
-
-    订单操作通常是简单 API 调用，不需要摘要工具，
-    只需调用限制防止异常循环。
-
-    Returns:
-        中间件实例列表
-    """
-    return [
-        ModelCallLimitMiddleware(run_limit=20),
-        ToolCallLimitMiddleware(run_limit=50),
-    ]

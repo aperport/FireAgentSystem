@@ -1,7 +1,22 @@
 """
-在每轮 Agent 回复完成后（aafter_agent 钩子），自动提取对话中涉及的关键词，更新 StoreBackend 中的用户偏好文件。
+记忆更新中间件 — 在每轮 Agent 回复完成后自动更新用户偏好文件。
 
-Agent 无需手动维护 recent_suppliers / recent_queries —— 系统自动处理。
+Hook: aafter_agent
+
+功能：
+    自动提取对话中涉及的消防关键词，更新 StoreBackend 中的用户偏好文件。
+    Agent 无需手动维护 recent_equipment / recent_queries —— 系统自动处理。
+
+处理流程：
+    1. 获取 user_id（从 runtime.context）
+    2. 判断最后一条用户消息是否"有意义"（关键词匹配 + 子Agent委派检测）
+    3. LLM 提取实体（设备名称、查询摘要）
+    4. 合并更新 /memories/{user_id}/preferences.md
+消防场景适配（相较于原采购项目）：
+    - business_keywords 改为消防领域（巡检、维保、火警、故障、能耗、值班等）
+    - 实体提取结果从 {suppliers: [...], query: "..."} 改为 {equipment: [...], query: "..."}
+    - 偏好文件中 recent_suppliers 改为 recent_equipment
+    - 去掉 preferred_currency
 
 使用方式:
     from agent.middlewares.memory_update import MemoryUpdateMiddleware
@@ -24,10 +39,14 @@ class MemoryUpdateMiddlewareTools:
 
     def __init__(self):
         self.business_keywords = [
-            "关键词","关键词2","关于业务","关键词"
+            "巡检", "维保", "火警", "故障", "能耗", "值班",
+            "用电", "用水", "用气",
+            "烟感", "喷淋", "设备", "消火栓", "报警", "探测器",
+            "灭火", "消防", "配电", "泵", "电源",
         ]
         self.skip_words = [
-            "你好","在吗","此处是可以略过的关键词","此处是可以略过的关键词2"
+            "你好", "在吗", "谢谢", "好的", "知道了", "嗯", "哦",
+            "hi", "hello", "ok", "thanks",
         ]
 
     def _is_meaningful_last(self, message:list[BaseMessage])->str | None:
@@ -111,19 +130,20 @@ class MemoryUpdateMiddlewareTools:
         """
 
 
-        # 注意，下方提示词需根据实际业务修改
-        prompt = f"""Extract procurement-related entities from this conversation.
+        # 消防后勤场景实体提取
+        prompt = f"""从以下消防后勤对话中提取关键实体。
 
-    Rules:
-    1. "suppliers": Company/supplier names mentioned. Include both Chinese and English names. Empty list if none.  
-    2. "query": One-line summary of the user's procurement need. Empty string if not procurement-related.
+规则：
+1. "equipment": 对话中提及的消防设备名称（如：烟感探测器-01、喷淋泵、EPS电源）。未提及则为空列表。
+2. "zones": 对话中提及的建筑区域（如：B栋3层、ICU病房、A栋配电间）。未提及则为空列表。
+3. "query": 用户查询的一句话摘要。非消防相关问题则为空字符串。
 
-    User message: {user_message}
+用户消息：{user_message}
 
-    Assistant response summary: {ai_summary}
+AI回复摘要：{ai_summary}
 
-    Return ONLY a JSON object, no other text:
-    {{"suppliers": ["CompanyA", "CompanyB"], "query": "brief summary"}}"""
+仅返回JSON对象，不要包含其他文字：
+{{"equipment": ["设备A", "设备B"], "zones": ["区域A"], "query": "简要摘要"}}"""
         
 
 
@@ -145,13 +165,14 @@ class MemoryUpdateMiddlewareTools:
             if start != -1 and end != -1 and end > start:
                 result = json.loads(text[start:end + 1])
                 return {
-                    "suppliers": result.get("suppliers", []),  # suppliers 供应商
+                    "equipment": result.get("equipment", []),
+                    "zones": result.get("zones", []),
                     "query": result.get("query", ""),
                 }
         except Exception:
             logger.warning("MemoryUpdateMiddleware: LLM 提取失败，跳过本次更新", exc_info=True)
 
-        return {"suppliers": [], "query": ""}
+        return {"equipment": [], "query": ""}
     
 
     def _create_file_value(self,content_str: str) -> dict:
@@ -211,11 +232,12 @@ class MemoryUpdateMiddleware(AgentMiddleware):
 
            # 5.LLM提取实体
            entities = await tools._extract_entities(self.model,user_messages,ai_summary)
-           suppliers = entities.get("suppliers", [])    # 注意此处使用的为项目数据，供应商，应根据实际业务去提取的实体中修改
+           equipment = entities.get("equipment", [])
+           zones = entities.get("zones", [])
            query = entities.get("query", "")
-           if not suppliers and not query:
+           if not equipment and not zones and not query:
                return None
-           logger.info(f"已提取实体，供应商：{suppliers}, 查询：{query}")
+           logger.info(f"已提取实体，设备：{equipment}, 区域：{zones}, 查询：{query}")
 
            # 6.从 StoreBackend 中读取用户已有的偏好文件。
            store = getattr(runtime, "store", None)
@@ -223,7 +245,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                logger.warning("MemoryUpdateMiddleware: 未找到 StoreBackend，跳过本次更新")
                return None
            
-           namespace = (user_id)
+           namespace = (user_id,)
            key = f"/{user_id}/preferences.md"
 
            try:
@@ -245,36 +267,143 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                     current_lines = value.split("\n")
             # 内部调用，下面方法使用了self，此处也要使用self调用，不然下边方法不要写self
            updated_content = self._merge_preferences(
-                current_lines, suppliers, query
+                current_lines, equipment, zones, query
             )
 
             # 8.更新记忆
            file_value = tools._create_file_value(updated_content) # type: ignore
            await store.aput(namespace, key, file_value)
-           logger.info(f"已更新记忆，供应商：{suppliers}, 查询：{query}")
+           logger.info(f"已更新记忆，设备：{equipment}, 区域：{zones}, 查询：{query}")
        except Exception as e:
            logger.warning(f"MemoryUpdateMiddleware: 更新失败，{e},跳过本次更新", exc_info=True,)
 
        return None
-   def _merge_preferences(self, current_lines: list[str], suppliers: list[str], query: str):
+   def _merge_preferences(self, current_lines: list[str], new_equipment: list[str], new_zones: list[str], new_query: str):
         """
         将新的用户偏好合并至其中
-        策略：先移除旧 recent_suppliers / recent_queries 区块，再在末尾追加合并后的版本。
+        策略：先移除旧 recent_equipment / recent_zones / recent_queries 区块，再在末尾追加合并后的版本。
         args:
-            current_lines: 
-            suppliers: 
-            query:
+            current_lines: 已有偏好文件行列表
+            new_equipment: 新提取的设备实体
+            new_zones: 新提取的区域实体
+            new_query: 新提取的查询摘要
         """
 
         # 1.解析旧的偏好
-        ex_suppliers = []
-        ex_queries = []
+        existing_equipment = []
+        existing_zones = []
+        existing_queries = []
         def _parse_list_items(lines: list[str], start_idx: int):
             """
             从start_idx开始解析列表项
             """
             items:list[str] = []
             title_line = lines[start_idx].strip()
+            # 检查 inline 格式: recent_equipment: [a, b]
+            colon_pos = title_line.find(":")
+            if colon_pos != -1:
+                inline = title_line[colon_pos + 1:].strip()
+                if inline.startswith("[") and inline.endswith("]"):
+                    inner = inline[1:-1].strip()
+                    if inner:
+                        return [s.strip().strip("'").strip('"') for s in inner.split(",") if s.strip()], 1
+            # 多行格式: 从下一行开始收集 - xxx 项
+            count = 1
+            for j in range(start_idx + 1, len(lines)):
+                stripped = lines[j].strip()
+                if stripped.startswith("- "):
+                    items.append(stripped[2:].strip().strip("'").strip('"'))
+                    count += 1
+                elif stripped and not lines[j].startswith(" "):
+                    break  # 遇到下一个顶级字段
+                else:
+                    count += 1  # 空行或注释，仍属于当前区块
+            return items, count
+        # 2. 找出旧区块的位置和值
+        equipment_start = -1
+        equipment_len = 0
+        zones_start = -1
+        zones_len = 0
+        queries_start = -1
+        queries_len = 0
+
+        for i, line in enumerate(current_lines):
+            stripped = line.strip()
+            if stripped.startswith("recent_equipment:"):
+                equipment_start = i
+                existing_equipment, equipment_len = _parse_list_items(current_lines, i)
+            elif stripped.startswith("recent_zones:"):
+                zones_start = i
+                existing_zones, zones_len = _parse_list_items(current_lines, i)
+            elif stripped.startswith("recent_queries:"):
+                queries_start = i
+                existing_queries, queries_len = _parse_list_items(current_lines, i)
+
+        # 3. 从原内容中移除旧区块（从后往前移，避免索引偏移）
+        clean_lines = list(current_lines)
+        # 按起始位置降序排列，从后往前删除
+        removals = []
+        if equipment_start >= 0:
+            removals.append((equipment_start, equipment_len))
+        if zones_start >= 0:
+            removals.append((zones_start, zones_len))
+        if queries_start >= 0:
+            removals.append((queries_start, queries_len))
+        removals.sort(key=lambda x: x[0], reverse=True)
+
+        for start, length in removals:
+            del clean_lines[start:start + length]
+
+        # 4. 合并新值和旧值
+        merged_equipment = list(new_equipment)
+        for s in existing_equipment:
+            if s not in merged_equipment:
+                merged_equipment.append(s)
+        merged_equipment = merged_equipment[:10]
+
+        merged_zones = list(new_zones)
+        for z in existing_zones:
+            if z not in merged_zones:
+                merged_zones.append(z)
+        merged_zones = merged_zones[:5]
+
+        merged_queries = [new_query] if new_query else []
+        for q in existing_queries:
+            if q.strip() not in [m.strip() for m in merged_queries]:
+                merged_queries.append(q)
+        merged_queries = merged_queries[:5]
+
+        # 5. 追加合并后的区块
+        result_lines = list(clean_lines)
+
+        # 确保末尾有空行分隔
+        if result_lines and result_lines[-1].strip():
+            result_lines.append("")
+
+        result_lines.append("recent_equipment:")
+        if merged_equipment:
+            for s in merged_equipment:
+                result_lines.append(f"  - {s}")
+        else:
+            result_lines[-1] = "recent_equipment: []"
+
+        result_lines.append("recent_zones:")
+        if merged_zones:
+            for z in merged_zones:
+                result_lines.append(f"  - {z}")
+        else:
+            result_lines[-1] = "recent_zones: []"
+
+        result_lines.append("recent_queries:")
+        if merged_queries:
+            for q in merged_queries:
+                result_lines.append(f"  - {q}")
+        else:
+            result_lines[-1] = "recent_queries: []"
+
+        return "\n".join(result_lines).strip() + "\n"
+
+
 
 
 

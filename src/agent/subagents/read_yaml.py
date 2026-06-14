@@ -1,6 +1,18 @@
 """
-读取agents中的yaml文件，将其转化为create_deep_agent()方法中的subagents参数，
-且过程中可能需要对skills、tools及mcp等进行校验，确定系统中存在工具和技能等。
+子 Agent YAML 解析与工具组装模块。
+
+功能：
+    1. load_yaml() — 读取 agents/ 目录下的 YAML 文件，解析为子 Agent 配置列表
+    2. resolve_tools() — 根据 YAML 配置从 tool_map 中匹配实际工具实例
+    3. assemble_subagents() — 完整流程：加载YAML + 加载MCP工具 + 组装
+
+当前子 Agent YAML 配置：
+    fire_qa_assistant.yaml      — 知识问答助手（GraphRAG检索工具）
+    fire_management_analyst.yaml — 管理分析助手（报表评鉴+明细+图遍历工具）
+
+工具匹配方式：
+    - group 前缀匹配：name.startswith("group_") → 匹配同组所有工具
+    - include 名称匹配：name in tool_map → 精确匹配单个工具
 """
 from langchain.tools import BaseTool
 from pathlib import Path
@@ -114,37 +126,4 @@ async def assemble_subagent(subagents:list | None=None,tool_map:dict[str,BaseToo
         logger.error(f"子智能体组装失败，原因：{e}")
         return []
         
-
-
-               
-        
-
-async def assemble_subagents(subagents: list | None = None,tool_map:dict[str,BaseTool] | None = None)->list:
-    """
-    组装子智能体，读取后，需要对子智能体的工具进行重新载入，作为真正的工具
-    args:
-        subagents: 子智能体列表，工具为名称
-        tool_map: 工具映射
-    returns:
-        list: 子智能体列表
-    """
-    subagent_list = []
-    # 获取子智能体列表和工具列表，之后从子智能体中解析出工具，将工具装入智能体的字典，组成新列表，传给主agent
-    if not subagents:
-        logger.info("子智能体为空，从agents目录下加载子智能体")
-        subagents = load_yaml()
-    if not tool_map:
-        logger.info("工具为空，从MCP加载工具")
-        tool_map = await load_mcp_tools()
-    try:
-        for subagent in subagents: 
-            subaagent_tools:list[BaseTool] = resolve_tools(subagent,tool_map)
-            logger.info(f"已加载子智能体：{subagent['name']}")
-            subagent["tools"] = subaagent_tools
-            subagent_list.append(subagent)
-            logger.info(f"子智能体：{subagent['name']}加载完成")
-    except Exception as e:
-        logger.error(f"子智能体加载失败，原因：{e}")
-    return subagent_list
-            
     

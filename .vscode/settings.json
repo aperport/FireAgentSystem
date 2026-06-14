@@ -1,7 +1,7 @@
 {
     "python-envs.pythonProjects": [
         {
-            "path": "src/agent/memoy",
+            "path": "src/agent/memory",
             "envManager": "ms-python.python:venv",
             "packageManager": "ms-python.python:pip"
         },
