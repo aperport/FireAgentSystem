@@ -99,27 +99,21 @@ async def create_main_agent(
     ag_md_content = LOCAL_AGENTS_MD.read_text()
     sandbox_backend.upload_files([("Agent.md", ag_md_content.encode("utf-8"))])
     logger.info("上传Agent.md到沙箱成功")
-
-    # CompositeBackend 分流
-        # /AGENTS.md          → 沙箱 default 路由（OpenSandbox已上传）
-        # /memories/          → StoreBackend（按 user_id 隔离用户偏好）
-        # /persisted-skills/  → StoreBackend（按 Agent scope 组织技能）
-        # 其余路径（临时文件、代码执行）保留在沙箱。
     logger.info("主Agent创建完成，开始进行分流")
 
-    def backend(rt):
+    def backend():
         """根据文件路径前缀将读写请求路由到不同的存储后端"""
         return CompositeBackend(
-            default=sandbox_backend,
+            default=sandbox_backend,                    # 默认：沙箱文件系统
             routes={
                 "/memories/": StoreBackend(
-                    runtime=rt,
-                    namespace=lambda r: (getattr(r.context, 'user_id', 'laoxiao'),),
+                    # runtime=rt,                       # 该参数已废弃，无需传入
+                    namespace=lambda r: (getattr(r.context, 'user_id', 'TEST'),),    # 用户偏好持久化 ，从上下文（类）中取出user_id，取不到用TEST    字典:dict.get(key, default)
                 ),
-                "/persisted-skills/": StoreBackend(
-                    runtime=rt,
-                    namespace=lambda r: SKILLS_STORE_NAMESPACE,
-                ),
+                # "/persisted-skills/": StoreBackend(
+                #     runtime=rt,
+                #     namespace=lambda r: SKILLS_STORE_NAMESPACE,
+                # ),
             },
         )
 
@@ -186,15 +180,15 @@ async def create_main_agent(
         main_agent = create_deep_agent(
             model=SUMMARY_MODEL,
             system_prompt=system_prompt,
-            skills= ["/skills/main/"],
-            memory=["/memories/"],    # AGENT.md的文件夹
+            # skills= ["/skills/main/"],            # 暂不使用skills
+            memory=["/memories/"],                  # 用户记忆存储路径（偏好、历史等，由StoreBackend按user_id隔离），上传之后的路径
             tools=available_tools,
             subagents=subagents,
-            middleware=main_mid,
-            backend=backend,
-            store=STORE,   # 持久化 
-            checkpointer=CHECKPOINT,
-            context_schema=FireLogisticsContext    # 传递当前用户信息
+            middleware=main_mid,                    # 中间件
+            backend=backend,                        # 存储
+            store=STORE,                            # 持久化 
+            checkpointer=CHECKPOINT,                # 检查点
+            context_schema=FireLogisticsContext     # 传递当前用户信息
         )
     except Exception as e:
         logger.error(f"主Agent创建失败，原因：{e}")
@@ -265,9 +259,6 @@ class _AgentProxy:
         return repr(self._agent)
 
 agent = _AgentProxy()
-
-
-
 
 def get_agent():
     """
