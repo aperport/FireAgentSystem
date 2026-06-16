@@ -61,8 +61,14 @@ async def load_mcp_tools(server_config: dict | None = None) -> dict[str, BaseToo
 
     # 从MCP Server加载工具
     tools_groups = []
+    # 遍历所有Server,加载工具，对工具进行前缀命名，用于后续分组匹配
     for key in server_config:
         tools = await mcp_client.get_tools(server_name=str(key))
+        new_tools = []
+        for tool in tools:
+            tool.name = f"{key}_{tool.name}"
+            new_tools.append(tool)
+        tools = new_tools
         tools_groups.append(tools)
         logger.info(f"已加载工具,共计{len(tools)}个工具，来自Server:{key}")
     all_tools = [tool for tools in tools_groups for tool in tools]

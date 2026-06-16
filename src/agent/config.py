@@ -50,7 +50,7 @@ SUMMARY_MODEL: BaseChatModel = DeepSeek_LLM
 
 
 
-# 记忆存储，存储类型有两种：内存（InMemory）和持久化（PostgreSQL） 不支持mongdb，想用自己写，集成basemodel
+# 记忆存储，存储类型有两种：内存（InMemory）和持久化（PostgreSQL，manggodb） 其他不支持的数据库可以继承BaseModel这个类自己写
 # 作用：此处存储用户偏好（User Preferences），全局规章制度、跨会话的知识库、对某个用户的长期画像，跨线程共享数据等。
 # 注意：此处只是示例，实际应用中应该持久化到数据库（PostgreSQL、Redis等）
 STORE = InMemoryStore()

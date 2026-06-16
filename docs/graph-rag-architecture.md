@@ -239,7 +239,7 @@ src/
 │   ├── env_utils.py                    # 环境变量加载 (.env → os.environ)
 │   ├── schema.py                       # 数据结构定义（FireLogisticsContext等）
 │   ├── middleware_config.py            # 子Agent中间件工厂
-│   ├── mcp_tools_bean.py              # 消防业务数据模型 (Pydantic)
+│   ├── mcp_tools_bean.py               # 消防业务数据模型 (Pydantic)
 │   │
 │   ├── memory/                         # 记忆与提示词
 │   │   ├── AGENTS.md                   # Agent 行为准则（消防后勤场景）

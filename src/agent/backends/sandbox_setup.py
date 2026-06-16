@@ -28,7 +28,6 @@ logger = get_logger(__name__)
 
 # 沙箱内 skills 文件存放目录
 SANDBOX_SKILLS_DIR = "/opt/skills"
-
 # OpenSandbox 连接配置（从环境变量读取）
 OPENSANDBOX_API_KEY = os.getenv("OPENSANDBOX_API_KEY", "")
 OPENSANDBOX_DOMAIN = os.getenv("OPENSANDBOX_DOMAIN", "api.opensandbox.io")

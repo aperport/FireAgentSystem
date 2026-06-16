@@ -181,9 +181,9 @@ async def create_main_agent(
             system_prompt=system_prompt,
             # skills= ["/skills/main/"],            # 暂不使用skills
             memory=["/memories/"],                  # 用户记忆存储路径（偏好、历史等，由StoreBackend按user_id隔离），上传之后的路径
-            tools=available_tools,                  # 工具
+            tools=available_tools,                  # 工具，来源很多，可以是MCP工具（有三种传输方式），也可以是自定义工具
             subagents=subagents,                    # 子智能体，类型subagent类型，即字典，里面含有name、description、system_prompt、tool字段，存在校验；另一种是CompiledSubAgent，即langgraph的智能体组合。
-            middleware=main_mid,                    # 中间件
+            middleware=main_mid,                    # 中间件。
             backend=backend(),                      # 后端：指定数据存储、文件系统、或者记忆（Memory）持久化的具体底层实现，存在几个默认实现，目前使用自定义OpenSandBox。
             store=STORE,                            # 长期记忆持久化，如用户偏好等。
             checkpointer=CHECKPOINT,                # 检查点，短期记忆，设置之后配合thread_id可实现连续会话

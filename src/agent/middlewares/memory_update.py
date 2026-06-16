@@ -17,6 +17,9 @@ Hook: aafter_agent
     - 实体提取结果从 {suppliers: [...], query: "..."} 改为 {equipment: [...], query: "..."}
     - 偏好文件中 recent_suppliers 改为 recent_equipment
     - 去掉 preferred_currency
+优化：
+    - 使用 `with_structured_output` 结构化输出
+    - 可考虑写入数据库如MongDB进行存储
 
 使用方式:
     from agent.middlewares.memory_update import MemoryUpdateMiddleware

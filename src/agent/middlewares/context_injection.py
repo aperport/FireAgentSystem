@@ -18,7 +18,7 @@ Hook: before_agent / abefore_agent
     - 偏好文件中 recent_suppliers 改为 recent_equipment
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from unitl_tools.logger import get_logger
 from langchain.agents.middleware import AgentMiddleware
@@ -31,7 +31,7 @@ class ContextInjectionMiddleware(AgentMiddleware):
     """上下文注入中间件，一般注入用户信息，用于后续区分识别用户偏好和权限"""
     def before_agent(self,state : dict[str, Any],runtime:Any) -> dict[str, Any] | None:
         """
-        同步函数，将用户信息注入到systemmessage信息中
+        同步函数，从runtime.context中获取Id，usename等信息，将用户信息注入到systemmessage信息中
         args:
             state : dict[str, Any]
             runtime : Any
