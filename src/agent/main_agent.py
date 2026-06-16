@@ -35,7 +35,6 @@ from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, SKILLS_STORE_NAMESPACE, ST
 from agent.middleware_config import create_analyst_middleware
 from agent.middlewares.context_injection import ContextInjectionMiddleware
 from agent.middlewares.memory_update import MemoryUpdateMiddleware
-
 from agent.subagents.read_yaml import assemble_subagent
 from agent.tools.MCP_client import load_mcp_tools
 
@@ -182,13 +181,15 @@ async def create_main_agent(
             system_prompt=system_prompt,
             # skills= ["/skills/main/"],            # 暂不使用skills
             memory=["/memories/"],                  # 用户记忆存储路径（偏好、历史等，由StoreBackend按user_id隔离），上传之后的路径
-            tools=available_tools,
-            subagents=subagents,
+            tools=available_tools,                  # 工具
+            subagents=subagents,                    # 子智能体，类型subagent类型，即字典，里面含有name、description、system_prompt、tool字段，存在校验；另一种是CompiledSubAgent，即langgraph的智能体组合。
             middleware=main_mid,                    # 中间件
-            backend=backend,                        # 存储
-            store=STORE,                            # 持久化 
-            checkpointer=CHECKPOINT,                # 检查点
-            context_schema=FireLogisticsContext     # 传递当前用户信息
+            backend=backend(),                      # 后端：指定数据存储、文件系统、或者记忆（Memory）持久化的具体底层实现，存在几个默认实现，目前使用自定义OpenSandBox。
+            store=STORE,                            # 长期记忆持久化，如用户偏好等。
+            checkpointer=CHECKPOINT,                # 检查点，短期记忆，设置之后配合thread_id可实现连续会话
+            context_schema=FireLogisticsContext,    # 传递一个Pydantic类，将根据属性提取参数。1.状态固化与规范化，强行规定了 Agent 的记忆里只能存什么、必须存什么，运行时会严格维护该字段；
+                                                    # 2.引导大模型进行结构化输入/输出（在每一轮对话，不止最后一轮）    3. 多步骤/多 Agent 之间的信息传递 
+            # response_format={"type": "json_object"},# 响应格式 (这个应该限制了json格式，但可能漏字段，更推荐2) 2.同样可以传入Pydantic类来提取格式（部分框架支持直接传 Pydantic，或用 pydantic_to_to_json_schema 转换）
         )
     except Exception as e:
         logger.error(f"主Agent创建失败，原因：{e}")

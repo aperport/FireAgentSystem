@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 
 
 class ContextInjectionMiddleware(AgentMiddleware):
+    """上下文注入中间件，一般注入用户信息，用于后续区分识别用户偏好和权限"""
     def before_agent(self,state : dict[str, Any],runtime:Any) -> dict[str, Any] | None:
         """
         同步函数，将用户信息注入到systemmessage信息中

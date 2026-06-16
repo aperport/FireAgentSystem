@@ -46,18 +46,26 @@ SCOPE_MAP = {
 # 摘要模型
 SUMMARY_MODEL: BaseChatModel = DeepSeek_LLM
 
-# 记忆存储，此处存到了内存，实际应该持久化
+
+
+
+
+# 记忆存储，存储类型有两种：内存（InMemory）和持久化（PostgreSQL） 不支持mongdb，想用自己写，集成basemodel
+# 作用：此处存储用户偏好（User Preferences），全局规章制度、跨会话的知识库、对某个用户的长期画像，跨线程共享数据等。
+# 注意：此处只是示例，实际应用中应该持久化到数据库（PostgreSQL、Redis等）
 STORE = InMemoryStore()
 
 
-# ---------- MongoDB 配置（用于持久化 Agent 短期记忆/checkpoint） ----------
+
+
+# MongoDBSaver: 用于持久化 Agent 对话状态（State/Checkpoints）的组件，属于 Checkpointer。
+# 作用：管理会话信息（Session），支持多轮对话短期记忆、Human-in-the-Loop（状态中断/审批）以及跨重启的对话恢复。
+# 注意：它只负责当前 Thread（线程）的执行流和状态，不负责跨会话的长期记忆或用户偏好（User Preferences）。
+# 类型：同样支持保存在内存（InMemory）和持久化（MongoDB）两种方式。
+# ---------- MongoDB 配置（用于持久化 Agent 短期对话状态/State） ----------
 MONGODB_URI = "mongodb://root:123456@39.100.100.28:27017/?authSource=admin"
 MONGODB_DB_NAME = "langchain_db"
 MONGODB_CHECKPOINT_COLLECTION = "checkpoints"
-
-
-# MongoDBSaver: Agent 对话状态的 MongoDB 持久化 checkpointer。
-# 支持 Human-in-the-Loop（interrupt 状态持久化）和跨重启对话恢复。
 _mongodb_client = MongoClient(MONGODB_URI)
 # 检查点
 CHECKPOINT = MongoDBSaver(
