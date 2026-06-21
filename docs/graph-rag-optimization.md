@@ -580,7 +580,6 @@ class RelType:
 | Collection | 向量类型 | 维度 | 主要字段 |
 |------------|---------|------|----------|
 | `fire_doc_collection` | dense + sparse | 1024 | id, text, category, source_file, title |
-| `fire_context_collection` | dense | 1024 | id, text, session_id, timestamp |
 | `fire_image_collection` | dense (多模态) | 1024 | id, text, image_path, source_file, title |
 
 **对比 C9**：C9 只有 1 个 Collection，消防场景需要 3 个。C9 用 HNSW（M=16, efConstruction=200），消防场景同样用 HNSW 但维度 1024。
