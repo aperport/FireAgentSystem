@@ -14,16 +14,45 @@
 以及 db_retriever.rebuild_bm25_index() 重建 BM25 索引。
 """
 
+import os
 from langchain_core.documents import Document
 from graph_rag.vector_db.collections import PGVectorManager
 from unitl_tools.logger import get_logger
-logger = get_logger
 
+logger = get_logger(__name__)
 
-pg = PGVectorManager("localhost", "postgres", "xxx", "fire_rag")
+# PG 连接参数从环境变量读取，不再硬编码
+_PG_HOST = os.getenv("PG_HOST", "localhost")
+_PG_PORT = int(os.getenv("PG_PORT", "5432"))
+_PG_USER = os.getenv("PG_USER", "postgres")
+_PG_PASSWORD = os.getenv("PG_PASSWORD", "")
+_PG_DBNAME = os.getenv("PG_DBNAME", "fire_rag")
 
 
 class DBOperator:
+    """向量数据操作器 — 延迟初始化 PGVectorManager"""
+
+    def __init__(self):
+        self._pg: PGVectorManager | None = None
+
+    @property
+    def pg(self) -> PGVectorManager:
+        """延迟初始化 PGVectorManager，首次访问时创建连接"""
+        if self._pg is None:
+            if not _PG_PASSWORD:
+                raise ValueError(
+                    "PG_PASSWORD 环境变量未设置，请在 .env 中配置 PostgreSQL 密码"
+                )
+            self._pg = PGVectorManager(
+                host=_PG_HOST,
+                user=_PG_USER,
+                password=_PG_PASSWORD,
+                dbname=_PG_DBNAME,
+                port=_PG_PORT,
+            )
+            logger.info(f"PGVectorManager 已初始化: {_PG_HOST}:{_PG_PORT}/{_PG_DBNAME}")
+        return self._pg
+
     def insert_chunks(self, chunks: list[Document]) -> None:
         """
         将向量化后的文档片段写入 PostgreSQL + pgvector 向量表。
@@ -31,7 +60,7 @@ class DBOperator:
         try:
             if chunks:
                 texts = [chunk.page_content for chunk in chunks]
-                vectors = pg.embeddings.embed_documents(texts) # type: ignore
+                vectors = self.pg.embeddings.embed_documents(texts)  # type: ignore
                 logger.info(f"向量表 fire_doc_collection 写入 {len(texts)} 条数据")
                 # 将向量化后的文档片段写入 PostgreSQL + pgvector 向量表
                 insert_sql = """
@@ -39,15 +68,15 @@ class DBOperator:
                 VALUES (%s, %s, %s, %s, %s, %s);
                 """
                 # 对应取出数据
-                cur = pg.get_cursor()
+                cur = self.pg.get_cursor()
                 for chunk, vector in zip(chunks, vectors):
-                    cur.execute(insert_sql, (chunk.page_content, chunk.metadata.get("category", ""), chunk.metadata.get("source_file", ""), chunk.metadata.get("title", ""),vector))
+                    cur.execute(insert_sql, (chunk.page_content, chunk.metadata.get("category", ""), chunk.metadata.get("source_file", ""), chunk.metadata.get("title", ""), vector))
                 logger.info(f"向量表 fire_doc_collection 写入完成，共 {len(texts)} 条数据")
         except Exception as e:
             logger.error(f"向量表 fire_doc_collection 写入失败：{e}")
             raise
 
-    
+
     def insert_picture(self, documents: list[Document]) -> None:
         """
         将向量化的图片描述写入 PostgreSQL + pgvector 向量表。
@@ -56,13 +85,13 @@ class DBOperator:
         try:
             if documents:
                 texts = [doc.page_content for doc in documents]
-                vectors = pg.embeddings.embed_documents(texts)  # type: ignore
+                vectors = self.pg.embeddings.embed_documents(texts)  # type: ignore
                 logger.info(f"向量表 fire_image_collection 写入 {len(texts)} 条数据")
                 insert_sql = """
                 INSERT INTO fire_image_collection (text, category, image_path, source_file, source_name, title, dense_vector)
                 VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """
-                cur = pg.get_cursor()
+                cur = self.pg.get_cursor()
                 for doc, vector in zip(documents, vectors):
                     cur.execute(insert_sql, (
                         doc.page_content,
@@ -76,7 +105,3 @@ class DBOperator:
         except Exception as e:
             logger.error(f"向量表 fire_image_collection 写入失败：{e}")
             raise
-
-
-
-

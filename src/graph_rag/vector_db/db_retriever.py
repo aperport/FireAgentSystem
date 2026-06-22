@@ -107,12 +107,12 @@ class HybridRetrievalModule:
     
 
 
-    def bm25_search(self,query:str,top_K:int = 5)->list[Document]:
+    def bm25_search(self,query:str,top_k:int = 5)->list[Document]:
         """
         BM25 关键词检索,在使用jieba分词后，查BM250索引，按分数降序返回k调数据，分数计入metadata,供以后调试或者分数融合使用
         args:
             query: 查询关键词
-            top_K: 返回前k个
+            top_k: 返回前k个
         return:
             list[Document]: 返回检索结果
         """
@@ -126,7 +126,7 @@ class HybridRetrievalModule:
             return []
         # 按分数降序去top_k
         scores = self.bm25.get_scores(tokenized_query)
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_K]
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
         docs:list[Document] = []
         for index in top_indices:
             score = float(scores[index])
@@ -340,7 +340,7 @@ class HybridRetrievalModule:
         # 1. 并行执行两路检索（各取 top_k * 2 扩大候选集）
         expand_k = top_k * 2
         dense_docs = self.dense_search(query, top_k=expand_k, category=category, score_threshold=score_threshold)
-        sparse_docs = self.bm25_search(query, top_K=expand_k)
+        sparse_docs = self.bm25_search(query, top_k=expand_k)
 
         # 2. RRF 融合
         ranked_list: list[tuple[str, list[Document]]] = [

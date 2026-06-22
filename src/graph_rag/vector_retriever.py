@@ -79,7 +79,7 @@ class VectorRetriever:
                 query, top_k=top_k, category=category, score_threshold=score_threshold
             )
         elif search_type == "sparse":
-            docs = self.retrieval_module.bm25_search(query, top_K=top_k)
+            docs = self.retrieval_module.bm25_search(query, top_k=top_k)
         elif search_type == "hybrid":
             docs = self.retrieval_module.hybrid_search(
                 query, top_k=top_k, category=category, score_threshold=score_threshold

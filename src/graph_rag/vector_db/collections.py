@@ -1,4 +1,4 @@
-"""
+﻿"""
 向量数据库 Schema 定义 — 基于 PostgreSQL + pgvector 定义向量表的字段结构与索引。
 
 两个向量表：
@@ -17,7 +17,8 @@
     - source_file  VARCHAR(255)   来源文件hash
     - source_name  VARCHAR(255)   来源文件名
     - title        VARCHAR(255)   标题/条款号
-    - dense_vector vector(512)    稠密语义向量（DashScope text-embedding-v4）
+    - dense_vector vector(512)    稠密语义向量（BAAI/bge-small-zh-v1.5，512维）
+    - dense_vector vector(512)    稠密语义向量（BAAI/bge-small-zh-v1.5，512维）
 
 fire_image_collection 独有字段：
     - image_path     VARCHAR(512) 图片路径
@@ -128,7 +129,13 @@ class PGVectorManager:
 
     使用方式：
         from graph_rag.vector_db.collections import PGVectorManager
-        pg = PGVectorManager(host="localhost", user="postgres", password="xxx", dbname="fire_rag")
+        import os
+        pg = PGVectorManager(
+            host=os.getenv("PG_HOST", "localhost"),
+            user=os.getenv("PG_USER", "postgres"),
+            password=os.getenv("PG_PASSWORD", ""),
+            dbname=os.getenv("PG_DBNAME", "fire_rag"),
+        )
         pg.init_tables()  # 首次部署时调用
     """
 
