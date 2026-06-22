@@ -14,7 +14,7 @@
       │   ├── "sparse" → bm25_search()
       │   └── "hybrid" → hybrid_search()
       │
-      ├── 2. 父文档回填（委托 context_fusion）
+      ├── 2. 父文档回填（委托 context_fusion）（可考虑在父文档回填后，依照 父文档id进行一次图遍历，一跳即可，将查询结果补充到meta）
       │
       └── 3. Token 预算截断（委托 context_fusion）
 

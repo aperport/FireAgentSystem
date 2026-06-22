@@ -39,6 +39,7 @@ class ContextFusionModule:
 
         将检索命中的子文档回填同一 source_file 下的完整父文档内容,
         提供更丰富的上下文信息。
+        这里回填了整个父文档，不是单个子文档，后续可以优化。
 
         Args:
             chunks: 检索命中的子文档

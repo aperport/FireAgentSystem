@@ -14,9 +14,10 @@
     - id           SERIAL PRIMARY KEY
     - text         TEXT           文本内容（BM25 索引的数据源）
     - category     VARCHAR(50)    分类（regulation / standard / manual / faq）
-    - source_file  VARCHAR(255)   来源文件名
+    - source_file  VARCHAR(255)   来源文件hash
+    - source_name  VARCHAR(255)   来源文件名
     - title        VARCHAR(255)   标题/条款号
-    - dense_vector vector(1024)   稠密语义向量（DashScope text-embedding-v4）
+    - dense_vector vector(512)    稠密语义向量（DashScope text-embedding-v4）
 
 fire_image_collection 独有字段：
     - image_path     VARCHAR(512) 图片路径
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS fire_doc_collection (
     text          TEXT NOT NULL,
     category      VARCHAR(50),
     source_file   VARCHAR(255),
+    source_name   VARCHAR(255),
     title         VARCHAR(255),
     dense_vector  vector(512),
     created_at    TIMESTAMP DEFAULT NOW()
@@ -62,6 +64,7 @@ CREATE TABLE IF NOT EXISTS fire_image_collection (
     category      VARCHAR(50),
     image_path    VARCHAR(512),
     source_file   VARCHAR(255),
+    source_name   VARCHAR(255),
     title         VARCHAR(255),
     dense_vector  vector(512),
     created_at    TIMESTAMP DEFAULT NOW()

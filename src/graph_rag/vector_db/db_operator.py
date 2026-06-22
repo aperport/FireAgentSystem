@@ -35,8 +35,8 @@ class DBOperator:
                 logger.info(f"向量表 fire_doc_collection 写入 {len(texts)} 条数据")
                 # 将向量化后的文档片段写入 PostgreSQL + pgvector 向量表
                 insert_sql = """
-                INSERT INTO  fire_doc_collection (text, category, source_file, title, dense_vector)
-                VALUES (%s, %s, %s, %s, %s);
+                INSERT INTO  fire_doc_collection (text, category, source_file,source_name, title, dense_vector)
+                VALUES (%s, %s, %s, %s, %s, %s);
                 """
                 # 对应取出数据
                 cur = pg.get_cursor()
@@ -59,8 +59,8 @@ class DBOperator:
                 vectors = pg.embeddings.embed_documents(texts)  # type: ignore
                 logger.info(f"向量表 fire_image_collection 写入 {len(texts)} 条数据")
                 insert_sql = """
-                INSERT INTO fire_image_collection (text, category, image_path, source_file, title, dense_vector)
-                VALUES (%s, %s, %s, %s, %s, %s);
+                INSERT INTO fire_image_collection (text, category, image_path, source_file, source_name, title, dense_vector)
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """
                 cur = pg.get_cursor()
                 for doc, vector in zip(documents, vectors):

@@ -31,19 +31,6 @@ BM25 索引生命周期：
       ├── context_fusion.attach_parent_documents()  ← 父文档回填
       └── context_fusion.truncate_to_budget()       ← Token 截断
 
-改造路线（按难度递进）：
-    1. 加日志和指标 — 记录每路检索召回数、融合去重率、截断丢弃 Token 数，生产化第一步
-    2. 加 Reranker 精排 — 在 _rrf_merge 粗排之后加交叉编码器精排
-       （推荐 BAAI/bge-reranker-v2-m3 本地部署，或 Cohere Rerank API）
-    3. 换 Embedding 模型 — 当前 bge-small-zh-v1.5，可升级 bge-large-zh-v1.5 / bge-m3 对比效果
-    4. 加评估体系 — 用 RAGAS 或自建评测集，量化检索准确率变化
-    5. 多路扩展 — 当前 dense + sparse 两路，可扩展图检索（Neo4j）为第三路，_rrf_merge 天然支持
-
-参考资源：
-    - RRF 原论文：Cormack et al., "Reciprocal Rank Fusion outperforms Condorcet", 2009
-    - Hybrid Search：Elasticsearch 8.x 官方博客 Hybrid Search 系列
-    - Parent Document：LangChain ParentDocumentRetriever 设计思路
-    - Reranker：BGE-Reranker (github.com/FlagOpen/FlagEmbedding) / Cohere Rerank API
 """
 import hashlib
 import jieba
