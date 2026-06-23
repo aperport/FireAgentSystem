@@ -36,15 +36,6 @@
 
 ### 1.3 已发现的 Bug
 
-| # | 文件 | 问题 | 严重度 |
-|---|------|------|--------|
-| 1 | `main_agent.py:155` | `subagent.get("name") == "analyst"` 但 YAML 中 name 是 `fire-management-analyst`，中间件永远注入不上 | 🔴 高 |
-| 2 | `db_operator.py:20` | `logger = get_logger` 缺括号，应为 `get_logger(__name__)` | 🔴 高 |
-| 3 | `db_operator.py:23` | `PGVectorManager("localhost", "postgres", "xxx", "fire_rag")` 硬编码凭据，模块加载即报错或连不上 | 🟡 中 |
-| 4 | `db_retriever.py:123` | `bm25_search(query, top_K=...)` 参数名大写 K，与 `dense_search(top_k=...)` 不一致 | 🟢 低 |
-| 5 | `context_fusion.py:29` | 明确标注"实体去重与相关性排序（待实现）" | 🟡 中 |
-| 6 | `collections.py` DDL | docstring 写 `vector(1024)` 但 DDL 实际为 `vector(512)`，不一致 | 🟢 低 |
-
 ---
 
 ## 二、主流程跑通路线图
