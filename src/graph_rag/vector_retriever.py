@@ -14,13 +14,12 @@
       │   ├── "sparse" → bm25_search()
       │   └── "hybrid" → hybrid_search()
       │
-      ├── 2. 父文档回填（委托 context_fusion）（可考虑在父文档回填后，依照 父文档id进行一次图遍历，一跳即可，将查询结果补充到meta）
+      ├── 2. 父文档回填（委托 context_fusion）
       │
       └── 3. Token 预算截断（委托 context_fusion）
 
-三个 Collection：
+两个 Collection：
     - fire_doc_collection：静态知识文档（法规/标准/手册）
-    - fire_context_collection：对话历史
     - fire_image_collection：图文混合文档
 
 由 MCP Tool (knowledge_search) 和 orchestrator.py 调用。
@@ -79,7 +78,7 @@ class VectorRetriever:
                 query, top_k=top_k, category=category, score_threshold=score_threshold
             )
         elif search_type == "sparse":
-            docs = self.retrieval_module.bm25_search(query, top_k=top_k)
+            docs = self.retrieval_module.bm25_search(query, top_K=top_k)
         elif search_type == "hybrid":
             docs = self.retrieval_module.hybrid_search(
                 query, top_k=top_k, category=category, score_threshold=score_threshold

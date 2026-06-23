@@ -4,7 +4,7 @@
 处理步骤：
     1. 实体去重：向量片段和图路径中可能包含相同实体的不同表述，需合并
     2. 相关性排序：按与查询的相关度排序（向量片段用score，图路径用跳数权重）
-    3. 父文档回填：检索命中的子文档回填同一 source_file 下的完整父文档内容
+    3. 父文档回填：检索命中的子文档回填同一 source_hash 下的完整父文档内容
     4. Token截断：截断至 LLM 上下文窗口预算内，保留最相关的内容
 
 融合策略：
@@ -37,13 +37,12 @@ class ContextFusionModule:
     ) -> list[Document]:
         """附加父文档内容
 
-        将检索命中的子文档回填同一 source_file 下的完整父文档内容,
+        将检索命中的子文档回填同一 source_hash 下的完整父文档内容,
         提供更丰富的上下文信息。
-        这里回填了整个父文档，不是单个子文档，后续可以优化。
 
         Args:
             chunks: 检索命中的子文档
-            parent_map: source_file -> 同源子文档列表（由 db_retriever._build_parent_map() 构建）
+            parent_map: source_hash -> 同源子文档列表（由 db_retriever._build_parent_map() 构建）
             top_n: 只回填排名前 N 的文档，避免上下文过长
 
         Returns:
@@ -57,19 +56,20 @@ class ContextFusionModule:
         result: list[Document] = list(chunks)
 
         for chunk in top_chunks:
-            source_file = chunk.metadata.get("source_file", "")
-            if not source_file or source_file not in parent_map:
+            source_hash = chunk.metadata.get("source_hash", "")
+            if not source_hash or source_hash not in parent_map:
                 continue
 
             # 获取同源的所有子文档，拼接为完整父文档内容
-            sibling_docs = parent_map[source_file]
+            sibling_docs = parent_map[source_hash]
             parent_content = "\n".join(doc.page_content for doc in sibling_docs)
 
             # 构建父文档，附加到结果末尾
             parent_doc = Document(
                 page_content=parent_content,
                 metadata={
-                    "source_file": source_file,
+                    "source_hash": source_hash,
+                    "source_name": chunk.metadata.get("source_name", ""),
                     "category": chunk.metadata.get("category", ""),
                     "title": chunk.metadata.get("title", ""),
                     "parent_doc": True,
@@ -78,7 +78,7 @@ class ContextFusionModule:
             )
             result.append(parent_doc)
             logger.info(
-                f"父文档回填：source_file={source_file}，子文档数={len(sibling_docs)}"
+                f"父文档回填：source_hash={source_hash}，子文档数={len(sibling_docs)}"
             )
 
         return result

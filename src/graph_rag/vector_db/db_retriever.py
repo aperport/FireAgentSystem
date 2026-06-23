@@ -17,20 +17,6 @@ BM25 索引生命周期：
     - 初始化时从 PG 加载全部 text 字段 → jieba 分词 → 构建 BM25Okapi 索引
     - 数据入库后需调用 rebuild_bm25_index() 重建索引
 
-本模块职责（纯检索层，不涉及回填/截断/编排）：
-    ├── dense_search()           PG pgvector 余弦相似度
-    ├── bm25_search()            jieba + BM25Okapi
-    ├── hybrid_search()          dense + sparse → _rrf_merge()
-    ├── _rrf_merge()             RRF 融合算子（静态方法，可被外部复用）
-    ├── _build_parent_map()      构建父文档映射表（供 context_fusion 使用）
-    └── rebuild_bm25_index()     BM25 索引重建
-
-上层调用链：
-    vector_retriever.search()        ← 统一检索入口（分发 + 回填 + 截断）
-      ├── db_retriever.*_search()    ← 纯检索
-      ├── context_fusion.attach_parent_documents()  ← 父文档回填
-      └── context_fusion.truncate_to_budget()       ← Token 截断
-
 """
 import hashlib
 import jieba
@@ -78,7 +64,7 @@ class HybridRetrievalModule:
         rows = cur.fetchall()
         chunks = []
         for row in rows:
-            chunks.append(Document(page_content=row["text"], metadata={"id": row["id"], "category": row["category"], "source_file": row["source_file"], "title": row["title"]}))
+            chunks.append(Document(page_content=row["text"], metadata={"id": row["id"], "category": row["category"], "source_hash": row["source_hash"],"source_name": row["source_name"],"title": row["title"]}))
         
         self.initialize(chunks)
 
@@ -107,12 +93,12 @@ class HybridRetrievalModule:
     
 
 
-    def bm25_search(self,query:str,top_k:int = 5)->list[Document]:
+    def bm25_search(self,query:str,top_K:int = 5)->list[Document]:
         """
         BM25 关键词检索,在使用jieba分词后，查BM250索引，按分数降序返回k调数据，分数计入metadata,供以后调试或者分数融合使用
         args:
             query: 查询关键词
-            top_k: 返回前k个
+            top_K: 返回前k个
         return:
             list[Document]: 返回检索结果
         """
@@ -126,7 +112,7 @@ class HybridRetrievalModule:
             return []
         # 按分数降序去top_k
         scores = self.bm25.get_scores(tokenized_query)
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_K]
         docs:list[Document] = []
         for index in top_indices:
             score = float(scores[index])
@@ -205,8 +191,9 @@ class HybridRetrievalModule:
                     metadata={
                         "id": row["id"],
                         "category": row["category"],
-                        "source_file": row["source_file"],
+                        "source_hash": row["source_hash"],
                         "title": row["title"],
+                        "source_name": row["source_name"],
                         "score": score,
                         "search_type": "dense",
                     },
@@ -296,22 +283,22 @@ class HybridRetrievalModule:
     def _build_parent_map(self) -> dict[str, list[Document]]:
         """构建父文档映射表
 
-        将 bm25_corpus_docs 中的子文档按 source_file 分组，
-        形成 source_file -> [Document, ...] 的映射关系。
-        用于检索命中子文档后，回填同一 source_file 下的完整父文档内容，
+        将 bm25_corpus_docs 中的子文档按 source_hash 分组，
+        形成 source_hash -> [Document, ...] 的映射关系。
+        用于检索命中子文档后，回填同一 source_hash 下的完整父文档内容，
         提供更丰富的上下文信息。
 
         Returns:
-            dict[str, list[Document]]: source_file -> 同源子文档列表
+            dict[str, list[Document]]: source_hash -> 同源子文档列表
         """
         parent_map: dict[str, list[Document]] = {}
         for doc in self.bm25_corpus_docs:
-            source_file = doc.metadata.get("source_file", "")
-            if not source_file:
+            source_hash = doc.metadata.get("source_hash", "")
+            if not source_hash:
                 continue
-            if source_file not in parent_map:
-                parent_map[source_file] = []
-            parent_map[source_file].append(doc)
+            if source_hash not in parent_map:
+                parent_map[source_hash] = []
+            parent_map[source_hash].append(doc)
         return parent_map
 
     def hybrid_search(
@@ -340,7 +327,7 @@ class HybridRetrievalModule:
         # 1. 并行执行两路检索（各取 top_k * 2 扩大候选集）
         expand_k = top_k * 2
         dense_docs = self.dense_search(query, top_k=expand_k, category=category, score_threshold=score_threshold)
-        sparse_docs = self.bm25_search(query, top_k=expand_k)
+        sparse_docs = self.bm25_search(query, top_K=expand_k)
 
         # 2. RRF 融合
         ranked_list: list[tuple[str, list[Document]]] = [
