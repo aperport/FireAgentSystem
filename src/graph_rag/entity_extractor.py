@@ -3,7 +3,8 @@
 
 支持两种抽取方式：
     1. LLM抽取：通过结构化输出提取实体名称和类型
-    2. NER抽取：基于规则或模型识别专业实体（设备名、法规名、区域名等）
+    2. NER抽取：基于小模型识别专业实体（设备名、法规名、区域名等）
+    3. 两种抽取结果进行去重融合，得到最终的抽取结果，采用异步模式。
 
 抽取结果供 graph_traverser.py 作为图遍历的起点实体。
 
@@ -13,7 +14,7 @@
     - 区域：ICU病房、B栋3层、地下车库
     - 模块：消防巡检、消防维修
 """
-
+import os
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from unitl_tools.logger import get_logger
@@ -35,17 +36,23 @@ class ExtractResult(BaseModel):
     entities: list[Entity]
     relations: list[Relation]
 
+
 class EntityExtractor:
-    def __init__(self,llm_client:ChatOpenAI,query:str,config:RunnableConfig|None=None):
+    def __init__(self,llm_client:ChatOpenAI,query:str,config:RunnableConfig|None=None,entity_extract_model:str=""):
         self.config = config
         self.llm_client = llm_client
         self.query = query
         self.driver = None
+        self.entity_extract_model = entity_extract_model
 
         # 图结构缓存
         self.entity_cache = {}
         self.relation_cache = {}
         self.subgraph_cache = {}
+
+        # 模型初始化
+        self.initialize_model()
+
 
     
     # ── 图 Schema 常量（来自 graph_db/schema.py），供 prompt 引用 ──
@@ -107,7 +114,7 @@ class EntityExtractor:
 
     def entity_extract_llm(self):
         """
-        理解查询意图，这是图查询核心，由自然语言到图查询的转换
+        利用llm大模型进行实体抽取，并强制输出 ExtractResult
         """
         prompt = self._build_extract_prompt()
         try:
@@ -118,15 +125,15 @@ class EntityExtractor:
 
         except Exception as e:
             logger.error("理解查询意图失败:%s, 开始使用NER抽取关键信息", str(e))
-
-    def entity_extract_ner(self):
+    
+    def initialize_model(self):
         """
-        根据规则对用户问题进行实体抽取用作llm的保底
+        初始化小模型
         """
         pass
 
-            
-    
+    def entity_extract_ner(self):
+        """
+        根据规则对用户问题进行实体抽取用作llm的保底,此处采用本地小模型提取，而非关键词匹配。
+        """
 
-
-    
