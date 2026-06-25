@@ -10,5 +10,8 @@
 模板设计原则：使用 OPTIONAL MATCH 避免因缺少关系而丢失主干节点。
 
 考虑两种查询方式，一种使用模版化的 Cypher 语句，一种使用llm生成的cypher语句，优先生成，然后使用模版化的cypher。
+模版化查询优先，查询无数据时，使用llm生成的cypher。
 """
 
+class GraphQueries:
+    

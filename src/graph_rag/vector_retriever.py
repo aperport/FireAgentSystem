@@ -27,7 +27,7 @@
 from langchain_core.documents import Document
 from graph_rag.vector_db.db_retriever import HybridRetrievalModule
 from graph_rag.context_fusion import ContextFusionModule
-from unitl_tools.logger import get_logger
+from util_tools.logger import get_logger
 
 
 logger = get_logger(__name__)

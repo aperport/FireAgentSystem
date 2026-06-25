@@ -22,7 +22,7 @@ from opensandbox.config import ConnectionConfigSync
 
 from src.agent.backends.custom_opensandbox import OpenSandboxBackend
 from agent.config import LOCAL_SKILLS_DIR
-from unitl_tools.logger import get_logger
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 

@@ -28,7 +28,7 @@ fire_image_collection 独有字段：
 """
 
 from pgvector.psycopg2 import register_vector
-from unitl_tools.logger import get_logger
+from util_tools.logger import get_logger
 from langchain_huggingface import HuggingFaceEmbeddings
 import psycopg2
 

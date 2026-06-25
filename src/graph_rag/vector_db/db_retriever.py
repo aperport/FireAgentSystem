@@ -23,7 +23,7 @@ import jieba
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
 from graph_rag.vector_db.collections import LOAD_ALL_TEXT_SQL, DENSE_SEARCH_SQL
-from unitl_tools.logger import get_logger
+from util_tools.logger import get_logger
 
 
 logger = get_logger(__name__)

@@ -250,8 +250,4 @@ class EntityExtractor:
         logger.info("总耗时:%.2f秒", end_time - start_time)
         return result
 
-        
-
-
-
-
+#  测试

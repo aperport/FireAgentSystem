@@ -17,7 +17,7 @@
 import os
 from langchain_core.documents import Document
 from graph_rag.vector_db.collections import PGVectorManager
-from unitl_tools.logger import get_logger
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
