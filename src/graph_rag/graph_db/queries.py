@@ -13,5 +13,59 @@
 模版化查询优先，查询无数据时，使用llm生成的cypher。
 """
 
+from graph_rag.entity_extractor import ExtractResult
+
+
 class GraphQueries:
+    # ── 系统操作子图 ──
+    system_operations_navigation = f"""
+    MATCH (module:Module {{name: $module_name}})
+    OPTIONAL MATCH (module)-[:BELONGS_TO]->(function:Function)
+    OPTIONAL MATCH (function)-[:BELONGS_TO]->(step:Step)
+    OPTIONAL MATCH (step)-[:PRECONDITION]->(precondition:Precondition)
+    RETURN module, function, step, precondition
+    """
+
+    # ── 法规关联子图 ──
+    regulation_association = f"""
+    MATCH (zone_type:ZoneType {{name: $zone_type_name}})
+    OPTIONAL MATCH (zone_type)-[:APPLIES_TO]->(regulation:Regulation)
+    OPTIONAL MATCH (regulation)-[:CONTAINS]->(clause:Clause)
+    OPTIONAL MATCH (clause)-[:REFERENCES]->(standard:Standard)
+    RETURN zone_type, regulation, clause, standard
+    """
+
+    # ── 设备依赖子图 ──
+    equipment_dependency = f"""
+    MATCH (equipment:Equipment {{name: $equipment_name}})
+    OPTIONAL MATCH (equipment)-[:DEPENDS_ON]->(dependent_equipment:Equipment)
+    OPTIONAL MATCH (dependent_equipment)-[:LOCATED_IN]->(zone:Zone)
+    RETURN equipment, dependent_equipment, zone
+    """
+
+    def __init__(self,OpenAI_client):
+        self.llm_client = OpenAI_client
+
+    async def query_llm(self,key_words:ExtractResult):
+        prompt = f"基于以下关键词，生成查询语句：{key_words}"
+        try:
+            response = self.llm_client.ainvoke(prompt)
+            result = response.content
+            # 去除 LLM 返回的 markdown 代码块标记（如 ```cypher ... ```）
+            stripped = result.strip()
+            if stripped.startswith("```"):
+                # 去除开头的 ```cypher 或 ```
+                first_newline = stripped.find("\n")
+                if first_newline != -1:
+                    stripped = stripped[first_newline + 1:]
+                else:
+                    stripped = stripped[3:]
+                # 去除结尾的 ```
+                if stripped.rstrip().endswith("```"):
+                    stripped = stripped.rstrip()[:-3].rstrip()
+            return stripped
+
+
+        
+    
     
