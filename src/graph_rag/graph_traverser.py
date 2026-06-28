@@ -15,9 +15,13 @@
 
 import os
 
+from typing import LiteralString
+
 from neo4j import AsyncDriver
+from agent.llm_config import DeepSeek_LLM
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers
+from graph_rag.graph_db.queries import GraphQueries
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -45,16 +49,17 @@ class GraphTraverser:
          if not entitie:
             logger.info("提取结果为空，无法进行图遍历")
             raise ValueError("提取结果为空，无法进行图遍历")
-         if entitie.type.lower() in ["zonetype", "regulation", "equipment"]:
+         if entitie.type.lower() in ["module", "regulation", "equipment"]:
             logger.info("类型为 %s，进行图遍历", entitie.type)
             # 进行图遍历
             result = await self.by_moudle_query(entitie,a_driver)
             return result
          else:
+            # 如果图反查结果存在，则取出类型回填入关键词类，并进行遍历，否则执行llm查询的函数
             logger.info("类型为 %s，无法进行图遍历，将优先查询提取词类型", entitie.type) 
             new_entitie = await self.query_type(entitie,a_driver)
             # 判断回填的type是否存在模板
-            if new_entitie.type.lower() in ["zonetype", "regulation", "equipment"]: # type: ignore
+            if new_entitie.type.lower() in ["module", "regulation", "equipment"]: # type: ignore
                 result = await self.by_moudle_query(new_entitie,a_driver) # type: ignore
                 return result
             else:
@@ -65,35 +70,102 @@ class GraphTraverser:
                     raise ValueError("图遍历结果为空，图数据库无相应数据")
                 return result
 
-        # 如果图反查结果存在，则取出类型回填入关键词类，并进行遍历，否则执行llm查询的函数
-         
     async def by_moudle_query(self,entity:Entity,driver:AsyncDriver):
         """
         根据模板进行图遍历
+        args:
+            entity: Entity                      抽取的关键词
+            driver: AsyncDriver                 neo4j 驱动
+        return:
+            result                              图遍历结果
         """
-        if entity.type == "zonetype":
-            # 关键词为zonetype，按照模板进行图遍历
-            print("关键词为zonetype，按照模板进行图遍历")
+        if entity.type == "module":
+            # 关键词为module，按照模板进行系统操作导航遍历
+            query: LiteralString = GraphQueries.system_operations_navigation
+            params = {"module_name": entity.name}
+            async with driver.session(database=self.Neo4jDriver.database) as session:
+                query_result = await session.run(query, params) 
+                records = await query_result.data()
+            result = records
 
         elif entity.type == "regulation":
-            # 关键词为regulation，按照模板进行图遍历
-            print("关键词为regulation，按照模板进行图遍历")
+            # 关键词为regulation，按照模板进行法规详情遍历
+            query: LiteralString = GraphQueries.regulation_detail
+            params = {"regulation_name": entity.name}
+            async with driver.session(database=self.Neo4jDriver.database) as session:
+                query_result = await session.run(query, params)
+                records = await query_result.data()
+            result = records
         else :
             # 关键词为equipment，按照模板进行图遍历
-            pass
+            query: LiteralString = GraphQueries.equipment_dependency
+            params = {"equipment_name": entity.name}
+            async with driver.session(database=self.Neo4jDriver.database) as session:
+                query_result = await session.run(query, params) 
+                records = await query_result.data()
+            result = records
         if not result:
             logger.info("图遍历结果为空，图数据库无相应数据")
             raise ValueError("图遍历结果为空，图数据库无相应数据")
         return result
     async def query_type(self,entity:Entity,driver:AsyncDriver):
         """
-        根据提取的关键词，取图数据进行查询，找出其类型，回填至Entity
+        根据提取的关键词，去图数据进行查询，找出其类型，回填至Entity
+        args:
+            entity: Entity                      抽取的关键词
+            driver: AsyncDriver                 neo4j 驱动
+        return:
+            entity                              回填后的实体
         """
-        pass
-
+        query: LiteralString = """
+        MATCH (n {name: $entity_name})
+        RETURN labels(n) AS nodeLabels
+        LIMIT 1
+        """
+        params = {"entity_name": entity.name}
+        async with driver.session(database=self.Neo4jDriver.database) as session:
+            query_result = await session.run(query, params)
+            records = await query_result.data()
+        if not records:
+            logger.info("实体[%s]在图数据库中未找到匹配节点，无法确定类型", entity.name)
+            entity.type = "Unknown"
+            return entity
+        node_labels = records[0]["nodeLabels"]
+        if not node_labels:
+            logger.info("实体[%s]匹配的节点无标签，无法确定类型", entity.name)
+            entity.type = "Unknown"
+            return entity
+        # 优先匹配已知的模板类型，忽略内部标签（如 __Entity__ 等）
+        known_types = {"Module", "Regulation", "Equipment"}
+        matched = [label for label in node_labels if label in known_types]
+        if matched:
+            entity.type = matched[0].lower()
+            logger.info("实体[%s]类型回填为: %s", entity.name, entity.type)
+        else:
+            entity.type = node_labels[0].lower()
+            logger.info("实体[%s]类型回填为非标准标签: %s", entity.name, entity.type)
+        return entity
     async def llm_query(self,entity:Entity,driver:AsyncDriver):
         """
         根据llm生成的查询语句进行图遍历,返回结果
+        args:
+            entity: Entity                      抽取的关键词
+            driver: AsyncDriver                 neo4j 驱动
+        return:
+            result                              图遍历结果
         """
-        pass
+        llm = GraphQueries(DeepSeek_LLM)
+        query = await llm.query_llm(entity)
+        if not query:
+            logger.info("LLM未正常生成查询语句，无法进行图遍历")
+            raise ValueError("LLM生成查询语句失败")
+        async with driver.session(database=self.Neo4jDriver.database) as session:
+            query_result = await session.run(query)
+            records = await query_result.data()
+        if not records:
+            logger.info("图遍历结果为空，图数据库无相应数据")
+            raise ValueError("图遍历结果为空，图数据库无相应数据")
+        return records
         
+        
+ 

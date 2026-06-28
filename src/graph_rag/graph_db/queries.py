@@ -13,41 +13,109 @@
 模版化查询优先，查询无数据时，使用llm生成的cypher。
 """
 
-from graph_rag.entity_extractor import ExtractResult
+from typing import LiteralString
 
+from graph_rag.entity_extractor import Entity
+from util_tools.logger import get_logger
+
+logger = get_logger(__name__)
+# ── 图 Schema 常量，供 LLM prompt 引用 ──
+
+NODE_TYPES = {
+    "Module": "系统功能模块（如：值班、巡检、维修）",
+    "Function": "模块下的具体功能",
+    "Step": "功能的操作步骤",
+    "Requirement": "执行步骤所需的前置条件/要求",
+    "Regulation": "消防法规/规范（如：《建筑设计防火规范》GB50016）",
+    "Clause": "法规中的具体条款（如：第5.1.1条）",
+    "Standard": "被条款引用的技术标准（如：GB 17945-2010）",
+    "ZoneType": "建筑分区分类（如：高层住宅、地下车库、ICU病房）",
+    "EquipmentType": "设备分类规格（如：烟感探测器、喷淋头、消防泵）",
+    "Equipment": "具体设备实例（如：烟感探测器-01、EPS电源-01）",
+    "Zone": "建筑区域实例（如：B栋3层、地下车库A区）",
+}
+
+REL_TYPES = {
+    "包含功能": "Module → Function",
+    "操作步骤": "Function → Step",
+    "下一步": "Step → Step",
+    "前置条件": "Step → Requirement",
+    "包含条款": "Regulation → Clause",
+    "引用": "Clause → Standard",
+    "适用法规": "ZoneType → Regulation",
+    "要求配置": "Clause → EquipmentType",
+    "属于分类": "Equipment → EquipmentType",
+    "安装于": "Equipment → Zone",
+    "依赖": "Equipment → Equipment（供电/控制）",
+}
+# 默认查询语句，后续需要改
 
 class GraphQueries:
     # ── 系统操作子图 ──
-    system_operations_navigation = f"""
-    MATCH (module:Module {{name: $module_name}})
-    OPTIONAL MATCH (module)-[:BELONGS_TO]->(function:Function)
-    OPTIONAL MATCH (function)-[:BELONGS_TO]->(step:Step)
-    OPTIONAL MATCH (step)-[:PRECONDITION]->(precondition:Precondition)
-    RETURN module, function, step, precondition
+    system_operations_navigation: LiteralString = """
+    MATCH (module:Module {name: $module_name})
+    OPTIONAL MATCH (module)-[:包含功能]->(function:Function)
+    OPTIONAL MATCH (function)-[:操作步骤]->(step:Step)
+    OPTIONAL MATCH (step)-[:前置条件]->(requirement:Requirement)
+    RETURN module, function, step, requirement
     """
 
-    # ── 法规关联子图 ──
-    regulation_association = f"""
-    MATCH (zone_type:ZoneType {{name: $zone_type_name}})
-    OPTIONAL MATCH (zone_type)-[:APPLIES_TO]->(regulation:Regulation)
-    OPTIONAL MATCH (regulation)-[:CONTAINS]->(clause:Clause)
-    OPTIONAL MATCH (clause)-[:REFERENCES]->(standard:Standard)
-    RETURN zone_type, regulation, clause, standard
+    # ── 法规详情子图（从法规出发） ──
+    regulation_detail: LiteralString = """
+    MATCH (regulation:Regulation {name: $regulation_name})
+    OPTIONAL MATCH (regulation)-[:包含条款]->(clause:Clause)
+    OPTIONAL MATCH (clause)-[:引用]->(standard:Standard)
+    RETURN regulation, clause, standard
     """
 
     # ── 设备依赖子图 ──
-    equipment_dependency = f"""
-    MATCH (equipment:Equipment {{name: $equipment_name}})
-    OPTIONAL MATCH (equipment)-[:DEPENDS_ON]->(dependent_equipment:Equipment)
-    OPTIONAL MATCH (dependent_equipment)-[:LOCATED_IN]->(zone:Zone)
+    equipment_dependency: LiteralString = """
+    MATCH (equipment:Equipment {name: $equipment_name})
+    OPTIONAL MATCH (equipment)-[:依赖]->(dependent_equipment:Equipment)
+    OPTIONAL MATCH (dependent_equipment)-[:安装于]->(zone:Zone)
     RETURN equipment, dependent_equipment, zone
     """
 
     def __init__(self,OpenAI_client):
         self.llm_client = OpenAI_client
 
-    async def query_llm(self,key_words:ExtractResult):
-        prompt = f"基于以下关键词，生成查询语句：{key_words}"
+    async def query_llm(self,key_words:Entity):
+        # 构建节点类型描述
+        node_desc = "\n".join(f"    - {k}：{v}" for k, v in NODE_TYPES.items())
+        rel_desc = "\n".join(f"    - {k}：{v}" for k, v in REL_TYPES.items())
+
+        prompt = f"""你是一个消防后勤领域的 Neo4j Cypher 查询生成专家。
+请根据给定的关键词实体，生成一条 Cypher 查询语句，用于在知识图谱中检索关联信息。
+
+## 关键词实体
+- 名称：{key_words.name}
+- 类型：{key_words.type}
+
+## 图数据库节点类型（仅限以下类型，不得自行编造）
+{node_desc}
+
+## 图数据库关系类型（仅限以下类型，不得自行编造）
+{rel_desc}
+
+## 生成规则
+1. 必须使用参数化查询，参数名使用 $param_name 格式（如 $entity_name），不要直接拼接字符串
+2. 起始节点通过 {{name: $param_name}} 匹配，不要使用其他属性
+3. 使用 OPTIONAL MATCH 而非 MATCH，避免因缺少关系而丢失主干节点
+4. 关系类型和方向必须严格遵循上述关系定义，不得编造关系
+5. 仅返回与关键词实体直接关联或 1-2 跳内关联的节点，不要过度扩展
+6. RETURN 中应包含所有匹配到的节点，以便获取完整上下文
+7. 不要添加 CREATE、DELETE、SET 等写操作语句
+8. 只输出纯 Cypher 语句，不要包含任何解释说明
+
+## 示例
+关键词：名称=消防巡检, 类型=Module
+生成语句：
+MATCH (module:Module {{name: $module_name}})
+OPTIONAL MATCH (module)-[:包含功能]->(function:Function)
+OPTIONAL MATCH (function)-[:操作步骤]->(step:Step)
+RETURN module, function, step
+
+请根据上述关键词实体生成 Cypher 查询语句："""
         try:
             response = self.llm_client.ainvoke(prompt)
             result = response.content
@@ -64,6 +132,8 @@ class GraphQueries:
                 if stripped.rstrip().endswith("```"):
                     stripped = stripped.rstrip()[:-3].rstrip()
             return stripped
+        except Exception as e:
+            logger.error("理解查询意图失败:%s", str(e))
 
 
         

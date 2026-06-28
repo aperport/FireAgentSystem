@@ -6,6 +6,9 @@
     2. NER抽取：基于小模型识别专业实体（设备名、法规名、区域名等）
     3. 两种抽取结果进行去重融合，得到最终的抽取结果，采用异步模式。
 
+补充：
+    目前优先使用 LLM 抽取结果，可考虑在LLM抽取时，将问题以及LLM的输出结果持久化入数据库，后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，LLM作为兜底，进而降低LLM调用次数与时间
+
 抽取结果供 graph_traverser.py 作为图遍历的起点实体。
 
 消防领域典型实体：
@@ -19,7 +22,7 @@ import os
 import time
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
-from unitl_tools.logger import get_logger
+from util_tools.logger import get_logger
 from langchain_openai import ChatOpenAI
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 import httpx

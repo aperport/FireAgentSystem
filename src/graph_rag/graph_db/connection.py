@@ -46,7 +46,7 @@ logger = get_logger(__name__)
 #     relation_type: str
 #     properties: dict[str, Any]
 
-class Neo4jDriver:
+class Neo4jDrivers:
     """Neo4j 驱动（同时支持同步与异步 Session）
 
     内部持有两个独立的 Driver 实例：
