@@ -21,6 +21,7 @@ BM25 索引生命周期：
 import hashlib
 import jieba
 from langchain_core.documents import Document
+from langchain_core.runnables import RunnableConfig
 from rank_bm25 import BM25Okapi
 from graph_rag.vector_db.collections import LOAD_ALL_TEXT_SQL, DENSE_SEARCH_SQL
 from util_tools.logger import get_logger
@@ -46,11 +47,10 @@ class HybridRetrievalModule:
     3. 相似度检索（余弦相似度）
     4. RRF 融合，融合三路检索结果
     """
-    def __init__(self, config,PGV_module,llm_client,data_module):
+    def __init__(self, PGV_module,llm_client,config:RunnableConfig|None=None):
         self.config = config
         self.PGV_module = PGV_module
         self.llm_client = llm_client
-        self.data_module = data_module
 
         # BM25 索引 + 原始文档
         self.bm25: BM25Okapi| None = None

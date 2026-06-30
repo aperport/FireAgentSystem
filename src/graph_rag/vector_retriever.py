@@ -42,7 +42,9 @@ class VectorRetriever:
 
     def __init__(self, retrieval_module: HybridRetrievalModule):
         self.retrieval_module = retrieval_module
-        self.fusion_module = ContextFusionModule()
+        self.fusion_module = ContextFusionModule(
+            parent_map=retrieval_module.parent_map
+        )
 
     def search(
         self,
@@ -91,7 +93,7 @@ class VectorRetriever:
 
         # 2. 父文档回填
         docs = self.fusion_module.attach_parent_documents(
-            docs, parent_map=self.retrieval_module.parent_map
+            docs, parent_map=self.fusion_module.parent_map
         )
 
         # 3. Token 预算截断
