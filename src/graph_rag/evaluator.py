@@ -17,7 +17,10 @@ RAGAS 质量评估模块 — 对 GraphRAG 生成的回答进行质量评估。
 
 
 import json
-from turtle import pd
+import os
+from datetime import datetime
+
+import pandas as pd
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
@@ -105,27 +108,93 @@ class RAGASEvaluator:
         """
         打印格式化的评估报告
         """
-        pass
+        metric_cols = [
+            "faithfulness",
+            "answer_relevancy",
+            "context_precision",
+            "context_recall",
+            "answer_correctness",
+        ]
+
+        # 汇总各指标均值
+        print("\n" + "=" * 60)
+        print("RAGAS 评估报告")
+        print("=" * 60)
+
+        available_metrics = [c for c in metric_cols if c in df.columns]
+        if available_metrics:
+            print("\n【各指标均值】")
+            for col in available_metrics:
+                mean_val = df[col].mean()
+                status = "通过" if mean_val >= 0.7 else "未达标"
+                print(f"  {col:25s}  {mean_val:.4f}  [{status}]")
+
+            overall = df[available_metrics].mean().mean()
+            overall_status = "通过" if overall >= 0.7 else "未达标"
+            print(f"\n  {'总体得分':25s}  {overall:.4f}  [{overall_status}]")
+        else:
+            print("  未找到 RAGAS 指标列，仅展示原始数据")
+
+        # 逐条低分样本
+        if available_metrics:
+            low_score_rows = df[
+                df[available_metrics].mean(axis=1) < 0.7
+            ]
+            if not low_score_rows.empty:
+                print(f"\n【低分样本（均值 < 0.7）：共 {len(low_score_rows)} 条】")
+                for idx, row in low_score_rows.iterrows():
+                    print(f"\n  --- 样本 {idx} ---")
+                    if "question" in row:
+                        print(f"  问题: {row['question']}")
+                    for col in available_metrics:
+                        print(f"  {col}: {row[col]:.4f}" if pd.notna(row[col]) else f"  {col}: N/A")
+
+        print("\n" + "=" * 60)
 
     def save_results(self,df: pd.DataFrame):
         """
         保存评估结果
         """
-        pass
+        input_dir = os.path.dirname(self.json_file_path) or "."
+        result_dir = os.path.join(input_dir, "eval_results")
+        os.makedirs(result_dir, exist_ok=True)
 
-    def fun1(self):
-        """
-        读取提问数据,对问题百分之10%的数据进行抽取评估,如果抽取到的问题评估分数小于阈值,则记录本次结果,用于后续数据微调
-        """
-        pass
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = os.path.splitext(os.path.basename(self.json_file_path))[0]
 
+        csv_path = os.path.join(result_dir, f"{base_name}_{timestamp}.csv")
+        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        logger.info(f"评估结果已保存至 {csv_path}")
+
+        metric_cols = [
+            "faithfulness",
+            "answer_relevancy",
+            "context_precision",
+            "context_recall",
+            "answer_correctness",
+        ]
+        available_metrics = [c for c in metric_cols if c in df.columns]
+        if available_metrics:
+            summary = {
+                "timestamp": timestamp,
+                "source_file": self.json_file_path,
+                "total_samples": len(df),
+                "metrics": {
+                    col: {
+                        "mean": round(float(df[col].mean()), 4),
+                        "min": round(float(df[col].min()), 4),
+                        "max": round(float(df[col].max()), 4),
+                    }
+                    for col in available_metrics
+                },
+                "overall_mean": round(float(df[available_metrics].mean().mean()), 4),
+                "pass": bool(df[available_metrics].mean().mean() >= 0.7),
+            }
+            json_path = os.path.join(result_dir, f"{base_name}_{timestamp}_summary.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, ensure_ascii=False, indent=2)
+            logger.info(f"评估摘要已保存至 {json_path}")
+
+        return result_dir
 
     
-
-
-
-
-
-
-
-
