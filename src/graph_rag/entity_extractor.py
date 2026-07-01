@@ -1,7 +1,10 @@
 """
-实体抽取模块 — 从用户自然语言问题中提取关键实体。
+实体抽取模块 — 通用实体/关系抽取引擎，同时服务于查询端和入库端。
 
-支持两种抽取方式：
+查询端（当前已实现）：从用户自然语言问题中提取关键实体，供 graph_traverser 图遍历。
+入库端（待重构，见下方 TODO）：从知识文档段落中抽取实体和关系，供 ingestion/entity_relation_extractor 写入 Neo4j。
+
+抽取方式（两端共用）：
     1. LLM抽取：通过结构化输出提取实体名称和类型
     2. NER抽取：基于小模型识别专业实体（设备名、法规名、区域名等）
     3. 两种抽取结果进行去重融合，得到最终的抽取结果，采用异步模式。
@@ -9,7 +12,16 @@
 补充：
     目前优先使用 LLM 抽取结果，可考虑在LLM抽取时，将问题以及LLM的输出结果持久化入数据库，后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，LLM作为兜底，进而降低LLM调用次数与时间
 
-抽取结果供 graph_traverser.py 作为图遍历的起点实体。
+TODO: 重构为通用抽取引擎，供 ingestion/entity_relation_extractor.py 复用
+    1. self.query 参数扩展为通用文本输入（如 self.text），同时兼容查询和文档两种场景
+    2. _build_extract_prompt() 增加 mode 参数（"query" / "document"），按场景切换 prompt：
+       - query 模式（当前）：从用户问题中提取，约束"仅提取问题中明确提及的实体"
+       - document 模式（新增）：从文档段落中提取，约束"提取段落中所有实体和关系"
+    3. LLM 结构化抽取（entity_extract_llm）、NER 管道（entity_extract_ner）、
+       结果融合（merge_results）、去重（_is_similar）等核心方法两端完全共用，无需重写
+    4. ingestion/entity_relation_extractor.py 精简为薄编排层：调本引擎抽取 → 写入 Neo4j
+    5. 两个场景的输出目标不同（查询端→graph_traverser，入库端→Neo4j 写入），
+       由调用方自行处理，不影响抽取逻辑本身
 
 消防领域典型实体：
     - 设备：烟感探测器-01、喷淋泵、EPS电源
