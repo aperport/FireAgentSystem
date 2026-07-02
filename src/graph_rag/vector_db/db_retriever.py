@@ -1,10 +1,19 @@
 """
 向量检索引擎 — 基于 PostgreSQL + pgvector + Python rank_bm25 提供三种检索策略。
 
-检索策略：
+✅ 已实现。检索策略：
     1. dense（稠密检索）：PG pgvector 余弦相似度，适合语义模糊查询
     2. sparse（稀疏检索）：Python jieba + rank_bm25，适合条款号/设备型号等精确关键词查询
     3. hybrid（混合检索）：dense + sparse 在 Python 层 RRF 融合，兼顾语义和关键词，推荐默认使用
+
+已实现方法：
+    - dense_search()       PG pgvector 余弦相似度检索
+    - bm25_search()        jieba 分词 + BM25Okapi 关键词检索
+    - hybrid_search()      dense + sparse RRF 融合检索
+    - _rrf_merge()         RRF 融合算法（去重 + 排名融合）
+    - _build_parent_map()  构建 source_file → 子文档列表的父文档映射
+    - rebuild_bm25_index() 从 PG 重新加载文本重建 BM25 索引
+    - initialize()         初始化 BM25 索引 + 父文档映射
 
 检索参数：
     - query：查询文本
@@ -17,6 +26,16 @@ BM25 索引生命周期：
     - 初始化时从 PG 加载全部 text 字段 → jieba 分词 → 构建 BM25Okapi 索引
     - 数据入库后需调用 rebuild_bm25_index() 重建索引
 
+⚠️ 已知问题：
+    1. 所有检索方法均为同步，但 vector_retriever.search() 是 async 方法，
+       同步调用会阻塞事件循环
+    2. HybridRetrievalModule 初始化时未调用 initialize()，
+       bm25 和 parent_map 均为空，需外部手动调用
+
+待优化：
+    - 将检索方法改为异步（或用 asyncio.to_thread 包装）
+    - 初始化时自动构建 BM25 索引
+    - 中文停用词表可替换为专业停用词包
 """
 import hashlib
 import jieba
@@ -64,7 +83,7 @@ class HybridRetrievalModule:
         rows = cur.fetchall()
         chunks = []
         for row in rows:
-            chunks.append(Document(page_content=row["text"], metadata={"id": row["id"], "category": row["category"], "source_hash": row["source_hash"],"source_name": row["source_name"],"title": row["title"]}))
+            chunks.append(Document(page_content=row["text"], metadata={"id": row["id"], "category": row["category"], "source_file": row["source_file"], "source_name": row.get("source_name", ""),"title": row["title"]}))
         
         self.initialize(chunks)
 
@@ -191,9 +210,9 @@ class HybridRetrievalModule:
                     metadata={
                         "id": row["id"],
                         "category": row["category"],
-                        "source_hash": row["source_hash"],
+                        "source_file": row["source_file"],
                         "title": row["title"],
-                        "source_name": row["source_name"],
+                        "source_name": row.get("source_name", ""),
                         "score": score,
                         "search_type": "dense",
                     },
@@ -283,22 +302,22 @@ class HybridRetrievalModule:
     def _build_parent_map(self) -> dict[str, list[Document]]:
         """构建父文档映射表
 
-        将 bm25_corpus_docs 中的子文档按 source_hash 分组，
-        形成 source_hash -> [Document, ...] 的映射关系。
-        用于检索命中子文档后，回填同一 source_hash 下的完整父文档内容，
+        将 bm25_corpus_docs 中的子文档按 source_file 分组，
+        形成 source_file -> [Document, ...] 的映射关系。
+        用于检索命中子文档后，回填同一 source_file 下的完整父文档内容，
         提供更丰富的上下文信息。
 
         Returns:
-            dict[str, list[Document]]: source_hash -> 同源子文档列表
+            dict[str, list[Document]]: source_file -> 同源子文档列表
         """
         parent_map: dict[str, list[Document]] = {}
         for doc in self.bm25_corpus_docs:
-            source_hash = doc.metadata.get("source_hash", "")
-            if not source_hash:
+            source_file = doc.metadata.get("source_file", "")
+            if not source_file:
                 continue
-            if source_hash not in parent_map:
-                parent_map[source_hash] = []
-            parent_map[source_hash].append(doc)
+            if source_file not in parent_map:
+                parent_map[source_file] = []
+            parent_map[source_file].append(doc)
         return parent_map
 
     def hybrid_search(

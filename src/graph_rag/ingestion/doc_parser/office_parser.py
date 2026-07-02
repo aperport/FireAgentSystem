@@ -1,7 +1,7 @@
 """
 Office 文档解析模块 — 将 Word/HTML 文件解析为 Markdown + 提取嵌入图片。
 
-解析引擎：Unstructured（开源文档解析库）
+❌ 未实现（骨架）。解析引擎：Unstructured（开源文档解析库）
 
 处理流程：
     1. 使用 Unstructured 解析文档结构（标题、段落、表格、图片）
@@ -19,4 +19,15 @@ Unstructured 优势：
 
 输出格式：
     ParsedDocument(text=Markdown内容, images=[{path, description}], metadata={...})
+
+待实现：
+    1. Unstructured 集成：调用 partition_docx / partition_html 解析文档
+    2. 结构化 → Markdown 转换：将 Unstructured 的 Element 列表转为 Markdown
+    3. 表格处理：Unstructured 的 TableElement → Markdown 表格
+    4. 嵌入图片提取：从 docx 中提取 media/ 目录下的图片文件
+    5. 元数据构建：来源文件、格式、标题链等
+
+依赖：
+    - unstructured 库（pip install unstructured[docx,html]）
+    - ParsedDocument 数据类（from . import ParsedDocument）
 """

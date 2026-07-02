@@ -1,5 +1,24 @@
 """
-将信息保存的为工具，主要用于保存评估结果
+JSON 持久化工具 — 异步安全地读写 JSON 文件，主要用于保存检索结果和评估数据。
+
+✅ 已实现。提供三个异步方法：
+    - save_json()         覆盖写入 JSON（全量保存）
+    - load_json()         读取 JSON 文件
+    - append_json_item()  追加写入 JSON 数组（按日期分文件）
+
+线程安全：使用 asyncio.Lock 保证并发写入安全。
+文件命名：自动按日期命名（如 T20260702.json），append 时按 file_name + 日期拼接。
+
+⚠️ 已知问题：
+    1. FILE_LOCK 是模块级全局锁，多实例场景下无法跨进程保护
+    2. append_json_item() 中 except 裸捕获，应改为 except (FileNotFoundError, json.JSONDecodeError)
+    3. 路径拼接使用字符串 + 而非 os.path.join，不同操作系统可能出问题
+    4. get_today_date() 函数仅被间接使用，可内联或移除
+
+待优化：
+    - 使用 pathlib.Path 统一路径操作
+    - 细化异常捕获，避免静默吞掉非预期错误
+    - 支持自定义文件滚动策略（按大小/按天数）
 """
 
 import asyncio

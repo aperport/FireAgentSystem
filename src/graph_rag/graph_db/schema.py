@@ -1,7 +1,7 @@
 """
 知识图谱模型定义 — 定义 Neo4j 中的节点标签、关系类型和属性约束。
 
-节点类型（11种）：
+✅ 已实现。节点类型（11种）：
     Module, Function, Step, Requirement — 系统操作子图
     Regulation, Clause, Standard — 法规关联子图
     ZoneType, EquipmentType — 分类与规格
@@ -12,10 +12,21 @@
     包含条款, 引用, 适用法规, 要求配置 — 法规关联子图
     属于分类, 安装于, 依赖(供电/控制) — 设备依赖子图
 
-（使用原生neo4j驱动时，此处类型不对查询产生影响，仅作参考）
+（使用原生 neo4j 驱动时，此处类型不对查询产生影响，仅作参考和文档约束）
 
 本文件为 graph_traverser.py 的 Cypher 查询提供标签和关系名称常量，
 也为 ingestion/entity_relation_extractor.py 的数据写入提供结构约束。
+
+⚠️ 已知问题：
+    1. NODE_TYPES / REL_TYPES 字典在 entity_extractor.py 和 queries.py 中
+       各自重复定义了一份，应统一到本文件导出，其他模块从此处引用
+    2. dataclass 仅作结构约束，未与 Neo4j 实际写入/查询绑定，
+       ingestion 写入管线实现后需验证字段是否与实际图数据一致
+
+待优化：
+    - 将 NODE_TYPES / REL_TYPES 常量统一到本文件，消除重复定义
+    - 增加 Schema 验证方法：写入前校验节点/关系是否符合定义
+    - 增加 Schema 版本管理：图结构变更时支持迁移
 """
 
 

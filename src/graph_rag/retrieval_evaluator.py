@@ -1,12 +1,29 @@
-"""
+“””
 检索结果判空模块 — 结果为空或极低质量时自动 fallback 到其他检索工具。
 
-与 evaluator.py 的区别：
+✅ 已实现。与 evaluator.py 的区别：
     - evaluator.py：评估 LLM 最终回答质量（RAGAS，需 LLM，慢）
     - 本模块：检索后快速判空，空结果自动补查（纯算术，毫秒级）
 
-工具内部调用，对 LLM 不可见。LLM 觉得不够会自己追查，这里只处理“查空了”的情况。
-"""
+已实现方法：
+    - check_vector()   判断向量检索结果是否需要 fallback
+    - check_graph()    判断图遍历结果是否需要 fallback
+    - check_fusion()   判断融合检索结果是否需要 fallback（融合是最强策略，不再 fallback）
+
+Fallback 路径：
+    knowledge_search → graph_rag_search（向量查不到 → 补融合）
+    graph_query      → graph_rag_search（图查不到 → 补融合）
+
+⚠️ 已知问题：
+    1. ❌ 未接入 orchestrator.py，当前为独立模块无调用方
+    2. Fallback 目标只有 graph_rag_search，未形成完整的 fallback 链
+       （如 graph_rag_search 也空时，可 fallback 到 web_search 等）
+
+待实现：
+    - 接入 orchestrator：在向量检索和图遍历后自动调用判空
+    - 扩展 Fallback 链：融合检索为空时 fallback 到外部搜索
+    - 阈值可配置化：MIN_SIMILARITY 等参数移至 config.py
+“””
 
 from dataclasses import dataclass
 from graph_rag.entity_extractor import ExtractResult

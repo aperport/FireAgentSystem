@@ -1,16 +1,31 @@
 """
 实体抽取模块 — 通用实体/关系抽取引擎，同时服务于查询端和入库端。
 
-查询端（当前已实现）：从用户自然语言问题中提取关键实体，供 graph_traverser 图遍历。
-入库端（待重构，见下方 TODO）：从知识文档段落中抽取实体和关系，供 ingestion/entity_relation_extractor 写入 Neo4j。
+✅ 查询端已实现：从用户自然语言问题中提取关键实体，供 graph_traverser 图遍历。
+❌ 入库端待重构：从知识文档段落中抽取实体和关系，供 ingestion/entity_relation_extractor 写入 Neo4j。
 
 抽取方式（两端共用）：
-    1. LLM抽取：通过结构化输出提取实体名称和类型
-    2. NER抽取：基于小模型识别专业实体（设备名、法规名、区域名等）
-    3. 两种抽取结果进行去重融合，得到最终的抽取结果，采用异步模式。
+    1. LLM抽取：通过 with_structured_output(ExtractResult) 提取实体名称和类型
+    2. NER抽取：基于 HuggingFace BERT 小模型（Davlan/bert-base-multilingual-cased-ner-hrl）
+    3. 两种抽取结果进行去重融合（LLM 为主，NER 为补充），采用异步模式
+
+已实现方法：
+    - entity_extract_llm()   LLM 结构化抽取（异步，2秒超时）
+    - entity_extract_ner()   NER 小模型抽取（同步，通过 asyncio.to_thread 包装）
+    - merge_results()        LLM+NER 结果融合（LLM 为主，NER 补充 Unknown 类型实体）
+    - _is_similar()          文本相似度判断（包含关系 / 字符重叠率）
+    - main_pip()             异步管线入口（LLM+NER 并行 → 融合）
+
+消防领域典型实体：
+    - 设备：烟感探测器-01、喷淋泵、EPS电源
+    - 法规：建筑设计防火规范、医疗机构消防安全管理规范
+    - 区域：ICU病房、B栋3层、地下车库
+    - 模块：消防巡检、消防维修
 
 补充：
-    目前优先使用 LLM 抽取结果，可考虑在LLM抽取时，将问题以及LLM的输出结果持久化入数据库，后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，LLM作为兜底，进而降低LLM调用次数与时间
+    目前优先使用 LLM 抽取结果，可考虑在LLM抽取时，将问题以及LLM的输出结果持久化入数据库，
+    后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，
+    LLM作为兜底，进而降低LLM调用次数与时间。
 
 TODO: 重构为通用抽取引擎，供 ingestion/entity_relation_extractor.py 复用
     1. self.query 参数扩展为通用文本输入（如 self.text），同时兼容查询和文档两种场景
@@ -22,12 +37,6 @@ TODO: 重构为通用抽取引擎，供 ingestion/entity_relation_extractor.py �
     4. ingestion/entity_relation_extractor.py 精简为薄编排层：调本引擎抽取 → 写入 Neo4j
     5. 两个场景的输出目标不同（查询端→graph_traverser，入库端→Neo4j 写入），
        由调用方自行处理，不影响抽取逻辑本身
-
-消防领域典型实体：
-    - 设备：烟感探测器-01、喷淋泵、EPS电源
-    - 法规：建筑设计防火规范、医疗机构消防安全管理规范
-    - 区域：ICU病房、B栋3层、地下车库
-    - 模块：消防巡检、消防维修
 """
 import asyncio
 import os

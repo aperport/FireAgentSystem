@@ -1,17 +1,23 @@
 """
 上下文融合模块 — 将向量检索片段与图遍历路径合并为统一的融合上下文。
 
-处理步骤：
+✅ 已实现。处理步骤：
+    0. 图记录转换：Neo4j Cypher 记录 → LangChain Document（graph_records_to_documents）
     1. 实体去重：向量片段和图路径中可能包含相同实体的不同表述，需合并
     2. 相关性排序：按与查询的相关度排序（向量片段用score，图路径用跳数权重）
-    3. 父文档回填：检索命中的子文档回填同一 source_hash 下的完整父文档内容
+    3. 父文档回填：检索命中的子文档回填同一 source_file 下的完整父文档内容
     4. Token截断：截断至 LLM 上下文窗口预算内，保留最相关的内容
 
-融合策略：
-    - 系统操作类问题：以图路径(步骤链)为主线，向量片段补充细节
-    - 法规知识类问题：以向量片段(法规正文)为主线，图路径补充引用关系
+融合策略（当前实现）：
+    - 所有文档统一按 rrf_score > score > hop_weight 排序，不区分问题类型
+    - 原计划按问题类型切换策略（系统操作以图为主，法规以向量为主），尚未实现
 
-由 orchestrator.py 调用。
+由 orchestrator.py 调用（fuse() 方法为异步管线入口）。
+
+待优化：
+    1. 按问题类型切换融合策略：系统操作类以图路径为主线，法规类以向量片段为主线
+    2. _estimate_tokens() 为粗略估算，可替换为 tiktoken 精确计算
+    3. 中文 Unicode 范围 '一'~'鿿' 不完整，应扩展到 CJK 统一表意文字区块
 """
 import asyncio
 import hashlib
@@ -36,7 +42,7 @@ class ContextFusionModule:
         """初始化上下文融合模块
 
         Args:
-            parent_map: source_hash -> 同源子文档列表，
+            parent_map: source_file -> 同源子文档列表，
                 由 HybridRetrievalModule._build_parent_map() 构建，
                 可后续通过 set_parent_map() 更新。
         """
@@ -48,7 +54,7 @@ class ContextFusionModule:
         在检索模块重新加载/重建索引后调用，同步最新的 parent_map。
 
         Args:
-            parent_map: source_hash -> 同源子文档列表
+            parent_map: source_file -> 同源子文档列表
         """
         self._parent_map = parent_map
         logger.info(f"父文档映射表已更新，条目数={len(parent_map)}")
@@ -62,7 +68,7 @@ class ContextFusionModule:
 
     @staticmethod
     def graph_records_to_documents(
-        records: list[dict],
+        records: list[dict] | None,
         hop_count: int = 1,
     ) -> list[Document]:
         """将 Neo4j Cypher 查询记录转为 Document 列表
@@ -305,12 +311,12 @@ class ContextFusionModule:
     ) -> list[Document]:
         """附加父文档内容
 
-        将检索命中的子文档回填同一 source_hash 下的完整父文档内容,
+        将检索命中的子文档回填同一 source_file 下的完整父文档内容,
         提供更丰富的上下文信息。
 
         Args:
             chunks: 检索命中的子文档
-            parent_map: source_hash -> 同源子文档列表（由 db_retriever._build_parent_map() 构建）
+            parent_map: source_file -> 同源子文档列表（由 db_retriever._build_parent_map() 构建）
             top_n: 只回填排名前 N 的文档，避免上下文过长
 
         Returns:
@@ -324,19 +330,19 @@ class ContextFusionModule:
         result: list[Document] = list(chunks)
 
         for chunk in top_chunks:
-            source_hash = chunk.metadata.get("source_hash", "")
-            if not source_hash or source_hash not in parent_map:
+            source_file = chunk.metadata.get("source_file", "")
+            if not source_file or source_file not in parent_map:
                 continue
 
             # 获取同源的所有子文档，拼接为完整父文档内容
-            sibling_docs = parent_map[source_hash]
+            sibling_docs = parent_map[source_file]
             parent_content = "\n".join(doc.page_content for doc in sibling_docs)
 
             # 构建父文档，附加到结果末尾
             parent_doc = Document(
                 page_content=parent_content,
                 metadata={
-                    "source_hash": source_hash,
+                    "source_file": source_file,
                     "source_name": chunk.metadata.get("source_name", ""),
                     "category": chunk.metadata.get("category", ""),
                     "title": chunk.metadata.get("title", ""),
@@ -346,7 +352,7 @@ class ContextFusionModule:
             )
             result.append(parent_doc)
             logger.info(
-                f"父文档回填：source_hash={source_hash}，子文档数={len(sibling_docs)}"
+                f"父文档回填：source_file={source_file}，子文档数={len(sibling_docs)}"
             )
 
         return result
@@ -422,7 +428,7 @@ class ContextFusionModule:
     async def fuse(
         self,
         vector_docs: list[Document],
-        graph_records: list[dict],
+        graph_records: list[dict] | None,
         token_budget: int = 0,
         parent_top_n: int = 3,
         graph_hop_count: int = 1,

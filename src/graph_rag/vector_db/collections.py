@@ -1,7 +1,7 @@
 ﻿"""
 向量数据库 Schema 定义 — 基于 PostgreSQL + pgvector 定义向量表的字段结构与索引。
 
-两个向量表：
+✅ 已实现。两个向量表：
     1. fire_doc_collection   — 知识文档片段（法规、手册、巡检报告）
     2. fire_image_collection — 图片多模态描述（设备照片 OCR 结果）
 
@@ -24,6 +24,16 @@ fire_image_collection 独有字段：
 
 本文件为 db_operator.py 的数据插入提供表创建与字段校验，
 也为 db_retriever.py 的检索提供查询模板与输出字段映射。
+
+⚠️ 已知问题：
+    1. Embedding 模型名和设备硬编码（BAAI/bge-small-zh-v1.5 + cuda），
+       应从 config.py 读取
+    2. IVFFlat 索引 lists=100 在数据量小时效果差，应根据数据量动态调整
+    3. 单例模式（__new__）在多数据库场景下不灵活
+
+待优化：
+    - Embedding 配置外部化
+    - 向量索引参数自适应（根据数据量选择 lists 数量或切换到 HNSW）
 """
 
 from pgvector.psycopg2 import register_vector

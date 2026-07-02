@@ -1,18 +1,38 @@
 """
 RAGAS 质量评估模块 — 对 GraphRAG 生成的回答进行质量评估。
 
-评估指标：
-    1. ContextRelevance：检索到的上下文是否与问题相关
-    2. ResponseRelevancy：生成的回答是否切题
-    3. Trustworthy:上下文的可信度,回答是否完全基于上下文，是否编造
-##### 实度和答案相关性很相似，但它们的侧重点是不同的。忠实度更关注模型是否严格遵循了上下文，而答案相关性则更关注模型是否直接、完整且有效地回答了问题
+✅ 主体逻辑已实现。评估指标：
+    1. Faithfulness（忠实度）：回答是否完全基于上下文，是否编造
+    2. AnswerRelevancy（答案相关性）：回答是否切题、完整
+    3. ContextPrecision（上下文精确率）：检索内容与问题的相关性
+    4. ContextRecall（上下文召回率）：是否检索到足够信息
+    5. AnswerCorrectness（回答正确性）：与标准答案的对比
+
+    忠实度和答案相关性侧重点不同：
+    - 忠实度关注模型是否严格遵循上下文
+    - 答案相关性关注模型是否直接、完整且有效地回答了问题
+
 评估结果处理：
     - score ≥ 0.7：通过，直接输出
     - score < 0.7：不达标
         - 人工审批模式 → approve/reject
         - 自动模式 → 返回"知识库暂未收录该内容的完整答案"
 
-由 orchestrator.py 在 LLM 生成回答后调用。
+已实现方法：
+    - load_evaluation_data()  加载 JSON 评估数据集
+    - run_evaluation()        运行 RAGAS 五项指标评估
+    - print_results()         打印格式化评估报告
+    - save_results()          保存 CSV + JSON 摘要
+
+⚠️ 已知问题：
+    1. Embedding 模型硬编码为 BAAI/bge-small-zh-v1.5 + cuda，
+       应从 config.py 读取
+
+由 orchestrator.py 在 LLM 生成回答后调用（当前未接入）。
+
+待优化：
+    - 接入 orchestrator 的评估流程
+    - 增量评估：仅评估新增数据，避免全量重跑
 """
 
 
@@ -21,6 +41,15 @@ import os
 from datetime import datetime
 
 import pandas as pd
+from datasets import Dataset
+from ragas import evaluate, RunConfig
+from ragas.metrics import (
+    Faithfulness,
+    AnswerRelevancy,
+    ContextPrecision,
+    ContextRecall,
+    AnswerCorrectness,
+)
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI

@@ -1,8 +1,8 @@
 """
 向量检索模块 — 基于 PostgreSQL + pgvector 实现知识库的语义检索。
 
-支持三种检索策略：
-    1. 稠密检索（dense）：Embedding 向量相似度，适合语义模糊查询
+✅ 已实现。支持三种检索策略：
+    1. 稠密检索（dense）：Embedding 向量余弦相似度，适合语义模糊查询
     2. 稀疏检索（sparse）：BM25 关键词匹配，适合条款号/设备型号等精确查询
     3. 混合检索（hybrid）：稠密+稀疏 RRF 融合，兼顾语义和关键词，推荐默认使用
 
@@ -14,15 +14,26 @@
       │   ├── "sparse" → bm25_search()
       │   └── "hybrid" → hybrid_search()
       │
-      ├── 2. 父文档回填（委托 context_fusion）
+      ├── 2. 父文档回填（委托 context_fusion.attach_parent_documents）
       │
-      └── 3. Token 预算截断（委托 context_fusion）
+      └── 3. Token 预算截断（委托 context_fusion.truncate_to_budget）
 
 两个 Collection：
     - fire_doc_collection：静态知识文档（法规/标准/手册）
     - fire_image_collection：图文混合文档
 
 由 MCP Tool (knowledge_search) 和 orchestrator.py 调用。
+
+⚠️ 已知问题：
+    1. search() 是 async 方法，但内部调用的 retrieval_module.dense_search() /
+       bm25_search() / hybrid_search() 均为同步方法，未使用 await
+    2. attach_parent_documents() 和 truncate_to_budget() 也是同步方法，同样未 await
+    3. HybridRetrievalModule 初始化时未调用 initialize()，bm25 索引为空
+
+待优化：
+    - 将 db_retriever 的检索方法改为异步，或使用 asyncio.to_thread 包装
+    - VectorRetriever 初始化时应触发 BM25 索引构建
+    - 增加 retrieval_evaluator 集成：检索结果为空时自动 fallback
 """
 from langchain_core.documents import Document
 from graph_rag.vector_db.db_retriever import HybridRetrievalModule
@@ -46,7 +57,7 @@ class VectorRetriever:
             parent_map=retrieval_module.parent_map
         )
 
-    def search(
+    async def search(
         self,
         query: str,
         search_type: str = "hybrid",

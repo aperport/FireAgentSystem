@@ -7,20 +7,21 @@
 
 支持的输入格式与解析引擎：
 
-    | 格式    | 解析引擎           | 输出                         |
-    |---------|--------------------|------------------------------|
-    | PDF     | DotsOCR + VLLM     | Markdown + 图片提取          |
-    | Word    | Unstructured       | Markdown + 嵌入图片提取      |
-    | PNG/JPG | DotsOCR + VLLM     | 图片描述(Markdown)           |
-    | HTML    | Unstructured       | Markdown                     |
-    | MD      | 直接读取           | 原始Markdown                 |
+    | 格式    | 解析引擎           | 状态 | 输出                         |
+    |---------|--------------------|------|------------------------------|
+    | MD      | 直接读取           | ✅   | 原始Markdown + 图片提取      |
+    | PDF     | DotsOCR + VLLM     | ❌   | Markdown + 图片提取          |
+    | Word    | Unstructured       | ❌   | Markdown + 嵌入图片提取      |
+    | HTML    | Unstructured       | ❌   | Markdown                     |
+    | PNG/JPG | DotsOCR + VLLM     | ❌   | 图片描述(Markdown)           |
 
 子文件：
-    - dispatcher.py      格式识别与引擎路由（根据文件类型选择解析引擎）
-    - pdf_parser.py      PDF解析（扫描件OCR + 嵌入图片提取）
-    - image_parser.py    图片解析（OCR + 多模态LLM生成描述）
-    - office_parser.py   Word/HTML解析（Unstructured）
-    - md_parser.py       Markdown直接读取（最简单，仅做标准化处理）
+    - dispatcher.py      格式识别与引擎路由（❌ 骨架）
+    - pdf_parser.py      PDF解析（❌ 骨架：扫描件OCR + 嵌入图片提取）
+    - image_parser.py    图片解析（❌ 骨架：OCR + 多模态LLM生成描述）
+    - office_parser.py   Word/HTML解析（❌ 骨架：Unstructured）
+    - md_parser.py       Markdown直接读取（✅ 已实现：标准化+元数据增强+图片提取）
+    - example.py         数据准备模块（⚠️ 已实现但属于食谱领域，与消防场景无关）
 
 设计原则：
     1. 所有引擎输出统一格式（ParsedDocument），包含文本+图片+元数据
@@ -29,3 +30,21 @@
 
 参考项目：Multimodal_RAG 的 dots_ocr/ 模块（PDF/图片 → Markdown）。
 """
+
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+
+
+@dataclass
+class ParsedDocument:
+    """所有解析引擎的统一输出格式。
+
+    Attributes:
+        text: 解析后的文本内容（Markdown 格式）
+        images: 提取的图片信息列表，每项包含 path 和 description
+        metadata: 元数据字典，包含来源、格式、标题链等
+    """
+    text: str = ""
+    images: List[Dict[str, str]] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    

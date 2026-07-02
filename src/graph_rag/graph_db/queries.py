@@ -1,16 +1,26 @@
 """
-常用 Cypher 查询模板 — 按场景预定义的图遍历查询。
+常用 Cypher 查询模板 — 按场景预定义的图遍历查询 + LLM 动态生成。
 
-三种核心查询场景：
-    1. 系统操作导航：从模块名出发，遍历功能→步骤→前置条件
-    2. 法规关联检索：从区域类型出发，遍历适用法规→条款→引用标准→配置要求
-    3. 设备依赖追踪：从设备出发，遍历供电/控制依赖→受影响分区
+✅ 已实现。三种核心查询场景（预定义模板）：
+    1. system_operations_navigation：从模块名出发，遍历功能→步骤→前置条件
+    2. regulation_detail：从法规名出发，遍历条款→引用标准
+    3. equipment_dependency：从设备名出发，遍历依赖设备→安装区域
 
 每个查询模板为参数化的 Cypher 语句，由 graph_traverser.py 调用时填入具体参数。
 模板设计原则：使用 OPTIONAL MATCH 避免因缺少关系而丢失主干节点。
 
-考虑两种查询方式，一种使用模版化的 Cypher 语句，一种使用llm生成的cypher语句，优先生成，然后使用模版化的cypher。
-模版化查询优先，查询无数据时，使用llm生成的cypher。
+LLM 动态查询（query_llm 方法）：
+    当预定义模板无法匹配时，将实体和图 Schema 约束传入 LLM，
+    生成参数化 Cypher 语句。作为三级降级路由的最终兜底。
+
+⚠️ 已知问题：
+    1. NODE_TYPES / REL_TYPES 与 entity_extractor.py 中重复定义，
+       应统一到 schema.py 中导出，两处引用同一常量
+
+待优化：
+    - 统一 Schema 常量定义位置（移至 schema.py）
+    - 增加 LLM 生成 Cypher 的安全校验（禁止 CREATE/DELETE/SET 等写操作）
+    - 增加查询结果缓存（相同实体重复查询时命中缓存）
 """
 
 from typing import LiteralString
@@ -117,7 +127,7 @@ RETURN module, function, step
 
 请根据上述关键词实体生成 Cypher 查询语句："""
         try:
-            response = self.llm_client.ainvoke(prompt)
+            response = await self.llm_client.ainvoke(prompt)
             result = response.content
             # 去除 LLM 返回的 markdown 代码块标记（如 ```cypher ... ```）
             stripped = result.strip()

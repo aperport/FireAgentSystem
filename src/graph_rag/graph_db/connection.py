@@ -1,26 +1,34 @@
 """
 Neo4j 连接管理 — 管理 Neo4j 驱动的连接池与会话生命周期。
 
-功能：
-    - 初始化 Neo4j Driver（连接池配置）
+✅ 已实现。功能：
+    - 初始化 Neo4j Driver（同步 + 异步双驱动，懒初始化）
     - 获取同步/异步 Session
-    - 连接健康检查
-    - 优雅关闭（lifespan 管理）
+    - 连接健康检查（verify_connectivity / verify_connectivity_async）
+    - 优雅关闭（close / close_async）
 
-统一驱动：Neo4jDriver（内部同时持有同步与异步两个 Driver 实例）
-
-配置来源：graph_rag/config.py（NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD）
+统一驱动：Neo4jDrivers（内部同时持有同步与异步两个 Driver 实例）
 
 使用方式：
     # 同步
-    from graph_rag.graph_db.connection import Neo4jDriver
-    driver = Neo4jDriver(uri, user, password)
+    from graph_rag.graph_db.connection import Neo4jDrivers
+    driver = Neo4jDrivers(uri, user, password)
     with driver.get_session() as session:
         result = session.run(cypher_query)
 
     # 异步
+    driver = Neo4jDrivers(uri, user, password)
     async with await driver.get_async_session() as session:
         result = await session.run(cypher_query)
+
+⚠️ 已知问题：
+    1. graph_traverser.py 在模块顶层创建全局 Neo4jDrivers 实例（N4JD），
+       import 时即连接 Neo4j，应延迟到首次使用
+    2. 连接参数应从 config.py 读取，而非由调用方自行传入
+
+待优化：
+    - 增加连接池参数配置（max_connection_lifetime, connection_acquisition_timeout 等）
+    - 增加自动重连机制（连接断开时自动重建）
 """
 from util_tools.logger import get_logger
 from neo4j import GraphDatabase, AsyncGraphDatabase

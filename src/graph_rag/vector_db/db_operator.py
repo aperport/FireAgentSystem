@@ -1,17 +1,31 @@
 """
 向量数据插入模块 — 将向量化后的文档片段写入 PostgreSQL + pgvector 向量表。
 
-支持的写入场景：
+✅ 已实现。支持的写入场景：
     1. 知识文档入库：doc_parser + splitter + embedding → fire_doc_collection
-    2. 图片文档入库：图片提取 + 多模态描述 → fire_image_collection(文本来自于OCR或者多模态对图像的描述，可以不用分块)
+    2. 图片文档入库：图片提取 + 多模态描述 → fire_image_collection
+       （文本来自 OCR 或多模态对图像的描述，可以不用分块）
+
+已实现方法：
+    - insert_chunks()    批量写入文本片段（含向量）到 fire_doc_collection
+    - insert_picture()   批量写入图片描述（含向量）到 fire_image_collection
 
 数据来源：
-    - ingestion/doc_parser.py 解析后的 Markdown 文本
-    - ingestion/embedding.py 生成的向量
+    - ingestion/doc_parser/ 解析后的文本
+    - ingestion/embedding.py（❌ 骨架）生成的向量
 
 写入格式遵循 collections.py 中定义的表 Schema。
 数据入库后需调用 PGVectorManager.build_vector_indexes() 构建向量索引，
 以及 db_retriever.rebuild_bm25_index() 重建 BM25 索引。
+
+⚠️ 已知问题：
+    1. PG 连接参数从环境变量读取，但 PG_PASSWORD 为空时才报错，
+       应在初始化时统一校验
+    2. 批量写入使用逐条 execute，应改为 executemany 或 copy_from 提升性能
+
+待优化：
+    - 使用批量写入（executemany / copy_from）提升入库性能
+    - 增加写入去重：相同 source_file + title 的文档不重复写入
 """
 
 import os
@@ -70,7 +84,14 @@ class DBOperator:
                 # 对应取出数据
                 cur = self.pg.get_cursor()
                 for chunk, vector in zip(chunks, vectors):
-                    cur.execute(insert_sql, (chunk.page_content, chunk.metadata.get("category", ""), chunk.metadata.get("source_file", ""), chunk.metadata.get("title", ""), vector))
+                    cur.execute(insert_sql, (
+                        chunk.page_content,
+                        chunk.metadata.get("category", ""),
+                        chunk.metadata.get("source_file", ""),
+                        chunk.metadata.get("source_name", ""),
+                        chunk.metadata.get("title", ""),
+                        vector,
+                    ))
                 logger.info(f"向量表 fire_doc_collection 写入完成，共 {len(texts)} 条数据")
         except Exception as e:
             logger.error(f"向量表 fire_doc_collection 写入失败：{e}")

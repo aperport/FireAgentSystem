@@ -1,16 +1,38 @@
 """
 图遍历模块 — 基于 Neo4j Cypher 查询实现知识图谱的关联遍历。
 
-以实体抽取结果为起点，沿关系路径扩展 N 跳，获取结构化的关联上下文。
+✅ 已实现。以实体抽取结果为起点，采用三级降级路由策略遍历知识图谱：
+
+    Level 1 — 模板查询（type 已知）：
+        实体类型为 Module / Regulation / Equipment 时，直接使用预定义 Cypher 模板
+        - Module  → system_operations_navigation（模块→功能→步骤→前置条件）
+        - Regulation → regulation_detail（法规→条款→标准）
+        - Equipment  → equipment_dependency（设备→依赖设备→区域）
+
+    Level 2 — 类型反查（type 未知）：
+        先用 MATCH (n {name: $name}) 查图获取节点标签，回填 type 后重试模板查询
+        适用于 NER 补充的 Unknown 类型实体
+
+    Level 3 — LLM 生成查询（模板均失败）：
+        将实体和图 Schema 约束传入 LLM，生成参数化 Cypher 语句执行
+        作为最终兜底策略
 
 三种典型遍历场景：
     1. 系统操作导航：Module → Function → Step → Requirement
-    2. 法规关联检索：ZoneType → Regulation → Clause → Standard
+    2. 法规关联检索：Regulation → Clause → Standard
     3. 设备依赖追踪：Equipment → Equipment(依赖) → Zone
-    
-遍历深度、关系类型过滤等参数由 orchestrator.py 传入。
 
 由 MCP Tool (graph_query) 和 orchestrator.py 调用。
+
+⚠️ 已知问题：
+    1. 模块级全局 Neo4jDrivers 实例（N4JD）在 import 时即创建，应延迟到首次使用
+    2. traverse() 中 raise ValueError 在空结果时直接中断，应返回空列表或由调用方决定
+    3. 只处理 extract_result 中的第一个实体（for 循环内 return），多实体场景丢失结果
+
+待优化：
+    - 支持多实体并行遍历，合并多路图查询结果
+    - 增加遍历深度控制（当前模板固定深度）
+    - LLM 生成查询结果的安全性校验（防止误写操作）
 """
 
 import os
