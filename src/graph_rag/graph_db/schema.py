@@ -18,20 +18,55 @@
 也为 ingestion/entity_relation_extractor.py 的数据写入提供结构约束。
 
 ⚠️ 已知问题：
-    1. NODE_TYPES / REL_TYPES 字典在 entity_extractor.py 和 queries.py 中
-       各自重复定义了一份，应统一到本文件导出，其他模块从此处引用
+    1. ~~NODE_TYPES / REL_TYPES 字典在 entity_extractor.py 和 queries.py 中
+       各自重复定义了一份，应统一到本文件导出~~ ✅ 已统一
     2. dataclass 仅作结构约束，未与 Neo4j 实际写入/查询绑定，
        ingestion 写入管线实现后需验证字段是否与实际图数据一致
 
 待优化：
-    - 将 NODE_TYPES / REL_TYPES 常量统一到本文件，消除重复定义
+    - ~~将 NODE_TYPES / REL_TYPES 常量统一到本文件，消除重复定义~~ ✅ 已完成
     - 增加 Schema 验证方法：写入前校验节点/关系是否符合定义
     - 增加 Schema 版本管理：图结构变更时支持迁移
 """
 
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+from util_tools.logger import get_logger
+
+logger = get_logger(__name__)
+
+# ──────────────── Schema 常量（统一导出，消除重复定义）────────────────
+# ponytail: 之前在 entity_extractor.py / queries.py 各自定义了一份，统一到此处
+
+NODE_TYPES = {
+    "Module": "系统功能模块（如：值班、巡检、维修）",
+    "Function": "模块下的具体功能",
+    "Step": "功能的操作步骤",
+    "Requirement": "执行步骤所需的前置条件/要求",
+    "Regulation": "消防法规/规范（如：《建筑设计防火规范》GB50016）",
+    "Clause": "法规中的具体条款（如：第5.1.1条）",
+    "Standard": "被条款引用的技术标准（如：GB 17945-2010）",
+    "ZoneType": "建筑分区分类（如：高层住宅、地下车库、ICU病房）",
+    "EquipmentType": "设备分类规格（如：烟感探测器、喷淋头、消防泵）",
+    "Equipment": "具体设备实例（如：烟感探测器-01、EPS电源-01）",
+    "Zone": "建筑区域实例（如：B栋3层、地下车库A区）",
+}
+
+REL_TYPES = {
+    "包含功能": "Module → Function",
+    "操作步骤": "Function → Step",
+    "下一步": "Step → Step",
+    "前置条件": "Step → Requirement",
+    "包含条款": "Regulation → Clause",
+    "引用": "Clause → Standard",
+    "适用法规": "ZoneType → Regulation",
+    "要求配置": "Clause → EquipmentType",
+    "属于分类": "Equipment → EquipmentType",
+    "安装于": "Equipment → Zone",
+    "依赖": "Equipment → Equipment（供电/控制）",
+}
+
 # ──────────────── 节点属性定义 ────────────────
 # 以下 dataclass 定义各节点类型的属性字段，
 # 为 entity_relation_extractor.py 写入和 graph_traverser.py 查询提供结构约束。
@@ -234,3 +269,53 @@ class DependsOnRel:
     rel_type: str = "依赖"                        # Neo4j 关系类型名
     dep_type: Optional[str] = None               # 依赖类型（供电/控制）
     description: Optional[str] = None            # 关系描述
+
+
+# ──────────────── 抽取结果校验 ────────────────
+
+def validate_extract_result(result: "ExtractResult") -> "ExtractResult":
+    """校验抽取结果与 schema 的对齐情况。
+
+    校验规则：
+        1. 实体 type 必须在 NODE_TYPES 中
+        2. 关系 rel_type 必须在 REL_TYPES 中
+        3. 移除不合法的实体和关系，记录日志
+
+    Args:
+        result: 原始抽取结果
+
+    Returns:
+        校验后的抽取结果（可能比输入少）
+    """
+    from graph_rag.entity_extractor import ExtractResult  # ponytail: 延迟导入避免循环
+
+    valid_node_types = set(NODE_TYPES.keys())
+    valid_rel_types = set(REL_TYPES.keys())
+
+    valid_entities = []
+    for entity in result.entities:
+        if entity.type in valid_node_types:
+            valid_entities.append(entity)
+        else:
+            logger.warning(f"校验移除实体: name={entity.name!r}, type={entity.type!r} (不在 NODE_TYPES 中)")
+
+    valid_relations = []
+    for relation in result.relations:
+        if relation.relation in valid_rel_types:
+            valid_relations.append(relation)
+        else:
+            logger.warning(
+                f"校验移除关系: source={relation.source!r}, target={relation.target!r}, "
+                f"rel={relation.relation!r} (不在 REL_TYPES 中)"
+            )
+
+    removed_entities = len(result.entities) - len(valid_entities)
+    removed_relations = len(result.relations) - len(valid_relations)
+
+    if removed_entities or removed_relations:
+        logger.info(
+            f"校验结果: 移除 {removed_entities} 个非法实体, {removed_relations} 个非法关系, "
+            f"保留 {len(valid_entities)} 个实体, {len(valid_relations)} 个关系"
+        )
+
+    return ExtractResult(entities=valid_entities, relations=valid_relations)

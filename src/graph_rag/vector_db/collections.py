@@ -195,7 +195,7 @@ class PGVectorManager:
         """设置 embeddings 模型"""
         logger.info(f"设置 embeddings 模型: {self.model_name}")
         self.embeddings = HuggingFaceEmbeddings(model_name=self.model_name,
-                                                model_kwargs={"device": "cuda"},
+                                                model_kwargs={"device": "cpu"},
                                                 encode_kwargs={"normalize_embeddings": True})
         logger.info("embeddings 模型设置完成")
 

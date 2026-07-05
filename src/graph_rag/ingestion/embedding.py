@@ -1,31 +1,7 @@
 """
-Embedding 向量化模块 — 将文本转化为向量，供 PG pgvector 或下游入库使用。
+Embedding 向量化模块 — 使用 HuggingFace bge-small-zh-v1.5 本地模型。
 
-✅ 已实现。使用 HuggingFace 本地 Embedding（BAAI/bge-small-zh-v1.5, 512维），
-    与 vector_db/collections.py 中的 PGVectorManager 使用同一模型，
-    保证入库向量和检索向量的空间一致。
-
-⚠️ 图片向量化说明：
-    bge-small-zh-v1.5 是纯文本模型，不支持图片向量化。
-    当前图片文档（fire_image_collection）的入库策略：
-        - 图片的 text 字段用 alt 文本 / OCR 文本填充
-        - 用 bge-small-zh-v1.5 对该文本做向量化（间接实现图文检索）
-        - 若需真正的多模态向量化（图片像素级 Embedding），
-          需引入 DashScope multimodal-embedding-v1 或 CLIP 等多模态模型
-
-使用方式：
-    from graph_rag.ingestion.embedding import create_embedder
-    embedder = create_embedder()
-    vectors = embedder.embed_documents(["文本1", "文本2"])
-
-向量化结果写入 PG 的方式：
-    方案 A（当前）：由 DBOperator 内部调用 self.pg.embeddings.embed_documents() 自动向量化
-    方案 B（推荐）：由调用方先用本模块生成向量，再传给 DBOperator 写入
-        → 需后续重构 DBOperator，使其支持接收预计算向量
-
-环境变量：
-    EMBEDDING_MODEL_NAME  HuggingFace 模型名（默认 BAAI/bge-small-zh-v1.5）
-    EMBEDDING_DEVICE      推理设备 cuda / cpu（默认 cuda）
+图片通过 alt/OCR 文本间接实现图文检索，非多模态向量。
 """
 
 import os

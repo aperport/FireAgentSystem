@@ -18,20 +18,29 @@ openai>=1.50.0
 
 # ---------- GraphRAG — 图数据库 ----------
 neo4j>=5.0.0
-graphdatascience>=1.4.0
 
 # ---------- GraphRAG — 向量数据库 ----------
-pymilvus>=2.4.0
+pgvector>=0.3.0
+psycopg2-binary>=2.9.0
+rank-bm25>=0.2.0
 
 # ---------- GraphRAG — Embedding ----------
-dashscope>=1.20.0
+langchain-huggingface>=0.1.0
+sentence-transformers>=2.6.0
+transformers>=4.40.0
+torch>=2.0.0
 
 # ---------- GraphRAG — 文档解析 ----------
+langchain-text-splitters>=0.3.0
 unstructured>=0.16.0
 PyMuPDF>=1.24.0
 
 # ---------- GraphRAG — 评估 ----------
 ragas>=0.2.0
+datasets>=2.18.0
+
+# ---------- GraphRAG — 中文分词 ----------
+jieba>=0.42.0
 
 # ---------- 沙箱 ----------
 opensandbox-sdk-python>=0.1.0
@@ -44,6 +53,7 @@ pymongo>=4.8.0
 
 # ---------- 数据模型 ----------
 pydantic>=2.9.0
+pandas>=2.0.0
 
 # ---------- 配置 ----------
 python-dotenv>=1.0.0
@@ -52,7 +62,10 @@ pyyaml>=6.0.0
 # ---------- 日志 ----------
 loguru>=0.7.0
 
-# ---------- API 层（待实现）----------
+# ---------- 异步 ----------
+aiofiles>=23.0.0
+
+# ---------- API 层 ----------
 fastapi>=0.115.0
 uvicorn>=0.32.0
 sse-starlette>=2.0.0

@@ -1,4 +1,4 @@
-“””
+"""
 检索结果判空模块 — 结果为空或极低质量时自动 fallback 到其他检索工具。
 
 ✅ 已实现。与 evaluator.py 的区别：
@@ -23,7 +23,7 @@ Fallback 路径：
     - 接入 orchestrator：在向量检索和图遍历后自动调用判空
     - 扩展 Fallback 链：融合检索为空时 fallback 到外部搜索
     - 阈值可配置化：MIN_SIMILARITY 等参数移至 config.py
-“””
+"""
 
 from dataclasses import dataclass
 from graph_rag.entity_extractor import ExtractResult

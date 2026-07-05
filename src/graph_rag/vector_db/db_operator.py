@@ -22,6 +22,8 @@
     1. PG 连接参数从环境变量读取，但 PG_PASSWORD 为空时才报错，
        应在初始化时统一校验
     2. 批量写入使用逐条 execute，应改为 executemany 或 copy_from 提升性能
+    3. ❌ insert_chunks / insert_picture 无去重，重复执行会写入重复数据
+       （相同 source_file + title 的文档应跳过，重跑前需手动 TRUNCATE）
 
 待优化：
     - 使用批量写入（executemany / copy_from）提升入库性能
@@ -29,17 +31,21 @@
 """
 
 import os
+from dotenv import load_dotenv
 from langchain_core.documents import Document
 from graph_rag.vector_db.collections import PGVectorManager
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
+load_dotenv()
+
+
 # PG 连接参数从环境变量读取，不再硬编码
 _PG_HOST = os.getenv("PG_HOST", "localhost")
 _PG_PORT = int(os.getenv("PG_PORT", "5432"))
 _PG_USER = os.getenv("PG_USER", "postgres")
-_PG_PASSWORD = os.getenv("PG_PASSWORD", "")
+_PG_PASSWORD = os.getenv("PG_PASSWORD", "NewPass123!")
 _PG_DBNAME = os.getenv("PG_DBNAME", "fire_rag")
 
 

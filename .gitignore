@@ -40,3 +40,7 @@ htmlcov/
 
 # Claude
 .claude/
+
+# Temp / debug scripts
+_*.py
+_*.txt

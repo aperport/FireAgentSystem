@@ -14,11 +14,10 @@ LLM 动态查询（query_llm 方法）：
     生成参数化 Cypher 语句。作为三级降级路由的最终兜底。
 
 ⚠️ 已知问题：
-    1. NODE_TYPES / REL_TYPES 与 entity_extractor.py 中重复定义，
-       应统一到 schema.py 中导出，两处引用同一常量
+    1. ~~NODE_TYPES / REL_TYPES 与 entity_extractor.py 中重复定义~~ ✅ 已统一到 schema.py
 
 待优化：
-    - 统一 Schema 常量定义位置（移至 schema.py）
+    - ~~统一 Schema 常量定义位置（移至 schema.py）~~ ✅ 已完成
     - 增加 LLM 生成 Cypher 的安全校验（禁止 CREATE/DELETE/SET 等写操作）
     - 增加查询结果缓存（相同实体重复查询时命中缓存）
 """
@@ -26,38 +25,10 @@ LLM 动态查询（query_llm 方法）：
 from typing import LiteralString
 
 from graph_rag.entity_extractor import Entity
+from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-# ── 图 Schema 常量，供 LLM prompt 引用 ──
-
-NODE_TYPES = {
-    "Module": "系统功能模块（如：值班、巡检、维修）",
-    "Function": "模块下的具体功能",
-    "Step": "功能的操作步骤",
-    "Requirement": "执行步骤所需的前置条件/要求",
-    "Regulation": "消防法规/规范（如：《建筑设计防火规范》GB50016）",
-    "Clause": "法规中的具体条款（如：第5.1.1条）",
-    "Standard": "被条款引用的技术标准（如：GB 17945-2010）",
-    "ZoneType": "建筑分区分类（如：高层住宅、地下车库、ICU病房）",
-    "EquipmentType": "设备分类规格（如：烟感探测器、喷淋头、消防泵）",
-    "Equipment": "具体设备实例（如：烟感探测器-01、EPS电源-01）",
-    "Zone": "建筑区域实例（如：B栋3层、地下车库A区）",
-}
-
-REL_TYPES = {
-    "包含功能": "Module → Function",
-    "操作步骤": "Function → Step",
-    "下一步": "Step → Step",
-    "前置条件": "Step → Requirement",
-    "包含条款": "Regulation → Clause",
-    "引用": "Clause → Standard",
-    "适用法规": "ZoneType → Regulation",
-    "要求配置": "Clause → EquipmentType",
-    "属于分类": "Equipment → EquipmentType",
-    "安装于": "Equipment → Zone",
-    "依赖": "Equipment → Equipment（供电/控制）",
-}
 # 默认查询语句，后续需要改
 
 class GraphQueries:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Markdown 直接读取模块 — 读取 Markdown 文件并做标准化处理。
 
 ✅ 已实现。处理流程：
@@ -50,6 +50,11 @@ from . import ParsedDocument
 
 logger = get_logger(__name__)
 
+# 匹配 ![alt](path) 和 ![alt](path "title") 两种格式
+_IMAGE_PATTERN = re.compile(
+    r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)"
+)
+
 
 class MetadataEnhancer:
     """元数据增强器基类 — 可插拔接口，供子类实现自定义增强逻辑。
@@ -59,29 +64,18 @@ class MetadataEnhancer:
     """
 
     def enhance(self, parsed_doc: ParsedDocument) -> ParsedDocument:
-        """对 ParsedDocument 的 metadata 进行增强，返回增强后的对象。"""
+        """对 ParsedDocument 的 metadata 进行增强。子类覆盖此方法。"""
         return parsed_doc
 
 
 class MdParser:
-    """Markdown 文件解析器 — 读取、标准化、元数据增强。
-
-    Args:
-        enhancers: 可选的元数据增强器列表，按顺序依次执行。
-    """
+    """Markdown 文件解析器 — 读取、标准化、提取图片、构建元数据。"""
 
     def __init__(self, enhancers: Optional[List[MetadataEnhancer]] = None):
         self.enhancers = enhancers or []
 
     def parse(self, file_path: str) -> ParsedDocument:
-        """解析单个 Markdown 文件。
-
-        Args:
-            file_path: Markdown 文件路径
-
-        Returns:
-            ParsedDocument，包含标准化文本、提取的图片、元数据
-        """
+        """解析单个 Markdown 文件。"""
         path = Path(file_path)
         if not path.exists():
             raise FileNotFoundError(f"文件不存在: {file_path}")
@@ -114,20 +108,20 @@ class MdParser:
         return parsed_doc
 
     def parse_directory(self, dir_path: str) -> List[ParsedDocument]:
-        """递归解析目录下所有 Markdown 文件。
-
-        Args:
-            dir_path: 目录路径
-
-        Returns:
-            ParsedDocument 列表
-        """
+        """递归解析目录下所有 Markdown 文件。"""
+        results = []
         dir_path_obj = Path(dir_path)
         if not dir_path_obj.is_dir():
-            raise NotADirectoryError(f"不是目录: {dir_path}")
+            raise ValueError(f"非目录路径: {dir_path}")
 
-        results = []
-        for md_file in dir_path_obj.rglob("*.md"):
+        for md_file in sorted(dir_path_obj.rglob("*.md")):
+            try:
+                results.append(self.parse(str(md_file)))
+            except Exception as e:
+                logger.warning(f"解析文件 {md_file} 失败: {e}")
+
+        # 也匹配 .markdown 后缀
+        for md_file in sorted(dir_path_obj.rglob("*.markdown")):
             try:
                 results.append(self.parse(str(md_file)))
             except Exception as e:
@@ -154,8 +148,8 @@ class MdParser:
                 if min_level_seen is None or level < min_level_seen:
                     min_level_seen = level
 
-        # 如果最高标题不是 #，整体提升
-        if min_level_seen and min_level_seen > 1:
+        # 如果最高级别不是 #（一级），则整体提升
+        if min_level_seen is not None and min_level_seen > 1:
             offset = min_level_seen - 1
             for i, line in enumerate(lines):
                 match = re.match(r"^(#{1,6})\s", line)
@@ -183,11 +177,9 @@ class MdParser:
             图片信息列表，每项包含 path 和 alt
         """
         images = []
-        # 匹配 ![alt](path) 和 ![alt](path "title")
-        pattern = r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)"
-        for match in re.finditer(pattern, text):
-            alt = match.group(1).strip()
-            path = match.group(2).strip()
+        for match in _IMAGE_PATTERN.finditer(text):
+            alt = match.group(1)
+            path = match.group(2)
             images.append({"path": path, "alt": alt})
         return images
 
@@ -196,26 +188,28 @@ class MdParser:
     def _build_base_metadata(self, path: Path, text: str) -> Dict[str, Any]:
         """构建基础元数据 — 确定性层，零成本。
 
-        包含：
-        - source: 文件绝对路径
-        - filename: 文件名（不含扩展名）
-        - suffix: 文件扩展名
-        - format: 固定为 "markdown"
-        - parent_id: 基于相对路径的稳定哈希 ID
-        - top_headers: 顶层标题列表（文档的一级标题）
-        - header_chain: 从路径和标题推断的层级路径
-        - char_count: 字符数
+        包含字段：
+            - source: 文件绝对路径
+            - filename: 文件名（含扩展名）
+            - suffix: 文件扩展名
+            - format: 固定为 "markdown"
+            - parent_id: 基于文件名的稳定哈希 ID
+            - top_headers: 顶层标题列表（文档的一级标题）
+            - header_chain: 从路径和标题推断的层级路径
+            - char_count: 字符数
+            - category: 文档分类（从路径目录推断）
         """
         # 文件基本信息
         metadata: Dict[str, Any] = {
-            "source": str(path.resolve()),
-            "filename": path.stem,
+            "source": str(path),
+            "filename": path.name,
             "suffix": path.suffix.lower(),
             "format": "markdown",
             "char_count": len(text),
         }
 
-        # 基于（尝试获取相对路径的）稳定哈希 ID
+        # 基于文件名的稳定哈希 ID
+        # ponytail: 基于 path.stem，同名文件会冲突；改用相对路径哈希时升级此处
         metadata["parent_id"] = hashlib.md5(
             path.stem.encode("utf-8")
         ).hexdigest()
@@ -229,10 +223,32 @@ class MdParser:
         metadata["top_headers"] = top_headers
 
         # 构建 header_chain：路径目录部分 + 顶层标题
-        # 例如 "legal/消防法/第三章 > 第十五条"
-        chain_parts = list(path.parts[:-1])  # 目录部分
+        dir_parts = path.parts[:-1]  # 去掉文件名
+        header_chain_parts = list(dir_parts)
         if top_headers:
-            chain_parts.append(top_headers[0])
-        metadata["header_chain"] = " > ".join(chain_parts) if chain_parts else path.stem
+            header_chain_parts.append(top_headers[0])
+        metadata["header_chain"] = " > ".join(header_chain_parts) if header_chain_parts else ""
+
+        # 从路径目录推断分类
+        metadata["category"] = self._infer_category(path)
 
         return metadata
+
+    def _infer_category(self, path: Path) -> str:
+        """从文件路径目录名推断文档分类。
+
+        消防场景常见分类目录：法规、标准、手册、规程、制度 等。
+        """
+        CATEGORY_DIRS = {
+            "法规": "法规", "laws": "法规",
+            "标准": "标准", "standards": "标准",
+            "手册": "手册", "manuals": "手册",
+            "规程": "规程", "procedures": "规程",
+            "制度": "制度", "policies": "制度",
+            "巡检": "巡检", "inspection": "巡检",
+            "值班": "值班", "duty": "值班",
+        }
+        for part in path.parts:
+            if part in CATEGORY_DIRS:
+                return CATEGORY_DIRS[part]
+        return ""

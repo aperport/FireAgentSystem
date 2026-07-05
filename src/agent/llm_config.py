@@ -11,14 +11,35 @@ LLM 模型实例化 — 配置 DeepSeek 模型实例。
     DEEPSEEKMODEL     — 主模型名（如 deepseek-chat）
     DEEPSEEKMODELFAST — 快速模型名
 """
+import os
+
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from agent.env_utils import DeepSeek_API, DeepSeek_MODEL, DeepSeek_URL
+load_dotenv()
+
+
+DeepSeek_API = os.getenv("DEEPSEEKAPI")
+DeepSeek_URL = os.getenv("DEEPSEEKURL")
+DeepSeek_MODEL = os.getenv("DEEPSEEKMODEL")
+DeepSeek_MODEL_FAST = os.getenv("DEEPSEEKMODELFAST")
+
 
 DeepSeek_LLM = ChatOpenAI(
-    model=DeepSeek_MODEL, # type: ignore
-    api_key=DeepSeek_API, # type: ignore
+    model=DeepSeek_MODEL,  # type: ignore
+    api_key=DeepSeek_API,  # type: ignore
     base_url=DeepSeek_URL,
     timeout=60,
     temperature=0.7
+)
+
+DeepSeek_FAST = ChatOpenAI(
+    model=DeepSeek_MODEL_FAST,  # type: ignore
+    api_key=DeepSeek_API,  # type: ignore
+    base_url=DeepSeek_URL,
+    timeout=60,
+    temperature=0.7,
+    # DeepSeek JSON Output 模式：强制返回 JSON 格式
+    # 配合 prompt 中的 json 样例使用
+    model_kwargs={"response_format": {"type": "json_object"}},
 )

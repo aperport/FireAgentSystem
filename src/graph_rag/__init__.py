@@ -43,5 +43,5 @@ GraphRAG 模块 — 消防后勤知识问答系统的核心检索引擎。
     4. retrieval_evaluator.py：接入 orchestrator 的检索流程，实现空结果自动 fallback
     5. ingestion/doc_parser/example.py：属于食谱领域，与消防场景无关，建议移除或替换
     6. ingestion 写入管线：dispatcher → 各 parser → splitter → embedding → 写入
-    7. graph_db/queries.py + entity_extractor.py：NODE_TYPES/REL_TYPES 重复定义，应统一到 schema.py
+    7. ~~graph_db/queries.py + entity_extractor.py：NODE_TYPES/REL_TYPES 重复定义~~ ✅ 已统一到 schema.py
 """

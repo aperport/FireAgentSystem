@@ -27,16 +27,12 @@
     后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，
     LLM作为兜底，进而降低LLM调用次数与时间。
 
-TODO: 重构为通用抽取引擎，供 ingestion/entity_relation_extractor.py 复用
-    1. self.query 参数扩展为通用文本输入（如 self.text），同时兼容查询和文档两种场景
-    2. _build_extract_prompt() 增加 mode 参数（"query" / "document"），按场景切换 prompt：
-       - query 模式（当前）：从用户问题中提取，约束"仅提取问题中明确提及的实体"
-       - document 模式（新增）：从文档段落中提取，约束"提取段落中所有实体和关系"
-    3. LLM 结构化抽取（entity_extract_llm）、NER 管道（entity_extract_ner）、
-       结果融合（merge_results）、去重（_is_similar）等核心方法两端完全共用，无需重写
-    4. ingestion/entity_relation_extractor.py 精简为薄编排层：调本引擎抽取 → 写入 Neo4j
-    5. 两个场景的输出目标不同（查询端→graph_traverser，入库端→Neo4j 写入），
-       由调用方自行处理，不影响抽取逻辑本身
+TODO: ~~重构为通用抽取引擎，供 ingestion/entity_relation_extractor.py 复用~~ ✅ 已完成
+    1. ✅ self.query 参数扩展为通用文本输入，同时兼容查询和文档两种场景
+    2. ✅ _build_extract_prompt() 由子类覆盖，按场景切换 prompt
+    3. ✅ LLM/NER/融合/去重等核心方法两端完全共用
+    4. ✅ ingestion/entity_relation_extractor.py 精简为薄编排层
+    5. ✅ NODE_TYPES/REL_TYPES 统一到 graph_db/schema.py
 """
 import asyncio
 import os
@@ -47,6 +43,7 @@ from util_tools.logger import get_logger
 from langchain_openai import ChatOpenAI
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 import httpx
+from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
 
 logger = get_logger(__name__)
 
@@ -98,39 +95,21 @@ class EntityExtractor:
 
     
     # ── 图 Schema 常量（来自 graph_db/schema.py），供 prompt 引用 ──
+    # ponytail: 统一到 schema.py，此处仅引用，不再重复定义
 
-    NODE_TYPES = {
-        "Module": "系统功能模块（如：值班、巡检、维修）",
-        "Function": "模块下的具体功能",
-        "Step": "功能的操作步骤",
-        "Requirement": "执行步骤所需的前置条件/要求",
-        "Regulation": "消防法规/规范（如：《建筑设计防火规范》GB50016）",
-        "Clause": "法规中的具体条款（如：第5.1.1条）",
-        "Standard": "被条款引用的技术标准（如：GB 17945-2010）",
-        "ZoneType": "建筑分区分类（如：高层住宅、地下车库、ICU病房）",
-        "EquipmentType": "设备分类规格（如：烟感探测器、喷淋头、消防泵）",
-        "Equipment": "具体设备实例（如：烟感探测器-01、EPS电源-01）",
-        "Zone": "建筑区域实例（如：B栋3层、地下车库A区）",
-    }
+    NODE_TYPES = NODE_TYPES
+    REL_TYPES = REL_TYPES
 
-    REL_TYPES = {
-        "包含功能": "Module → Function",
-        "操作步骤": "Function → Step",
-        "下一步": "Step → Step",
-        "前置条件": "Step → Requirement",
-        "包含条款": "Regulation → Clause",
-        "引用": "Clause → Standard",
-        "适用法规": "ZoneType → Regulation",
-        "要求配置": "Clause → EquipmentType",
-        "属于分类": "Equipment → EquipmentType",
-        "安装于": "Equipment → Zone",
-        "依赖": "Equipment → Equipment（供电/控制）",
-    }
+    @staticmethod
+    def _format_schema() -> tuple[str, str]:
+        """将 NODE_TYPES / REL_TYPES 格式化为 prompt 可用的描述文本。"""
+        node_desc = "\n".join(f"    - {k}：{v}" for k, v in NODE_TYPES.items())
+        rel_desc = "\n".join(f"    - {k}：{v}" for k, v in REL_TYPES.items())
+        return node_desc, rel_desc
 
     def _build_extract_prompt(self) -> str:
         """构建实体抽取 prompt，将图 Schema 约束嵌入其中。"""
-        node_desc = "\n".join(f"    - {k}：{v}" for k, v in self.NODE_TYPES.items())
-        rel_desc = "\n".join(f"    - {k}：{v}" for k, v in self.REL_TYPES.items())
+        node_desc, rel_desc = self._format_schema()
 
         return f"""你是一个消防后勤领域的实体抽取专家。请从用户问题中提取与图数据库查询相关的关键实体和关系。
 
@@ -151,22 +130,66 @@ class EntityExtractor:
 5. 不要输出与问题无关的实体
 
 ## 返回格式
-严格按照约束格式返回
+请严格返回如下 JSON 格式，不要输出任何其他内容：
+```json
+{{
+  "entities": [{{"name": "实体名", "type": "节点类型"}}],
+  "relations": [{{"source": "源实体名", "target": "目标实体名", "relation": "关系类型"}}]
+}}
+```
 """
 
     async def entity_extract_llm(self):
         """
-        利用llm大模型进行实体抽取，并强制输出 ExtractResult（异步调用）
+        利用 LLM 进行实体抽取，返回 ExtractResult（异步调用）。
+
+        DeepSeek 不支持 with_structured_output，使用 JSON Output 模式：
+        1. 设置 response_format={'type': 'json_object'} 强制 JSON 输出
+        2. prompt 中包含 json 字样和格式样例（DeepSeek JSON Output 前提条件）
+        3. 手动解析为 ExtractResult 类
         """
         prompt = self._build_extract_prompt()
         try:
-            # 强制输出 ExtractResult类型，无需后续json.loads
-            entity_llm = self.llm_client.with_structured_output(ExtractResult)
-            response = await entity_llm.ainvoke(prompt)
-            return response
+            # 方式1：OpenAI structured output（DeepSeek 不支持，保留供兼容）
+            # entity_llm = self.llm_client.with_structured_output(ExtractResult)
+            # response = await entity_llm.ainvoke(prompt)
+
+            # 方式2：DeepSeek JSON Output 模式 — response_format + 手动解析
+            # DeepSeek 官方要求：response_format={'type': 'json_object'}，
+            # prompt 中必须含有 "json" 字样并给出格式样例
+            response = await self.llm_client.ainvoke(
+                prompt,
+                config=RunnableConfig(
+                    max_concurrency=1,
+                ),
+            )
+            # langchain_openai ChatOpenAI 通过 model_kwargs 传 response_format，
+            # 但 ainvoke 不支持，改用 bind 方式
+            # 实际已在 __init__ 中通过 model_kwargs 传入
+            text = response.content
+
+            # DeepSeek JSON Output 模式下可能返回空 content，按官方说明处理
+            if not text or not text.strip():
+                logger.warning("DeepSeek 返回空 content，尝试 NER 兜底")
+                return None
+
+            # 从 LLM 返回文本中提取 JSON（兼容 ```json ... ``` 包裹和裸 JSON）
+            import re, json
+            json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # 兜底：直接尝试整段文本解析
+                json_str = text
+
+            data = json.loads(json_str)
+            # 将 JSON 解析为与 structured_output 相同的 ExtractResult 类
+            entities = [Entity(**e) for e in data.get("entities", [])]
+            relations = [Relation(**r) for r in data.get("relations", [])]
+            return ExtractResult(entities=entities, relations=relations)
 
         except Exception as e:
-            logger.error("理解查询意图失败:%s, 开始使用NER抽取关键信息", str(e))
+            logger.error("LLM 实体抽取失败:%s, 开始使用NER抽取关键信息", str(e))
     
     def initialize_model(self):
         """
@@ -263,7 +286,7 @@ class EntityExtractor:
         # 2. 聚合等待，并对大模型设置 2.0 秒的硬超时防死锁
         llm_result: ExtractResult | None = None
         try:
-            llm_result = await asyncio.wait_for(llm_task, timeout=2.0)  # type: ignore[assignment]
+            llm_result = await asyncio.wait_for(llm_task, timeout=6.0)  # type: ignore[assignment]
         except asyncio.TimeoutError:
             logger.warning("LLM 推理超时")
         ner_list = await ner_task
