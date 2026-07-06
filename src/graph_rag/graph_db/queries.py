@@ -22,6 +22,7 @@ LLM 动态查询（query_llm 方法）：
     - 增加查询结果缓存（相同实体重复查询时命中缓存）
 """
 
+import json
 from typing import LiteralString
 
 from graph_rag.entity_extractor import Entity
@@ -66,7 +67,7 @@ class GraphQueries:
         rel_desc = "\n".join(f"    - {k}：{v}" for k, v in REL_TYPES.items())
 
         prompt = f"""你是一个消防后勤领域的 Neo4j Cypher 查询生成专家。
-请根据给定的关键词实体，生成一条 Cypher 查询语句，用于在知识图谱中检索关联信息。
+请根据给定的关键词实体，生成一条 Cypher 查询语句及其参数，用于在知识图谱中检索关联信息。
 
 ## 关键词实体
 - 名称：{key_words.name}
@@ -86,33 +87,29 @@ class GraphQueries:
 5. 仅返回与关键词实体直接关联或 1-2 跳内关联的节点，不要过度扩展
 6. RETURN 中应包含所有匹配到的节点，以便获取完整上下文
 7. 不要添加 CREATE、DELETE、SET 等写操作语句
-8. 只输出纯 Cypher 语句，不要包含任何解释说明
+8. 严格按以下 JSON 格式输出，不要包含任何其他内容：
+{{"query": "Cypher语句", "params": {{"param_name": "param_value"}}}}
 
 ## 示例
 关键词：名称=消防巡检, 类型=Module
-生成语句：
-MATCH (module:Module {{name: $module_name}})
-OPTIONAL MATCH (module)-[:包含功能]->(function:Function)
-OPTIONAL MATCH (function)-[:操作步骤]->(step:Step)
-RETURN module, function, step
+输出：
+{{"query": "MATCH (module:Module {{name: $module_name}}) OPTIONAL MATCH (module)-[:包含功能]->(function:Function) OPTIONAL MATCH (function)-[:操作步骤]->(step:Step) RETURN module, function, step", "params": {{"module_name": "消防巡检"}}}}
 
-请根据上述关键词实体生成 Cypher 查询语句："""
+请根据上述关键词实体生成查询："""
         try:
             response = await self.llm_client.ainvoke(prompt)
             result = response.content
-            # 去除 LLM 返回的 markdown 代码块标记（如 ```cypher ... ```）
+            # 去除 LLM 返回的 markdown 代码块标记（如 ```json ... ```）
             stripped = result.strip()
             if stripped.startswith("```"):
-                # 去除开头的 ```cypher 或 ```
                 first_newline = stripped.find("\n")
                 if first_newline != -1:
                     stripped = stripped[first_newline + 1:]
                 else:
                     stripped = stripped[3:]
-                # 去除结尾的 ```
                 if stripped.rstrip().endswith("```"):
                     stripped = stripped.rstrip()[:-3].rstrip()
-            return stripped
+            return json.loads(stripped)
         except Exception as e:
             logger.error("理解查询意图失败:%s", str(e))
 

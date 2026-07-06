@@ -70,6 +70,7 @@ class HybridRetrievalModule:
         self.config = config
         self.PGV_module = PGV_module
         self.llm_client = llm_client
+        self.parent_map = {}
 
         # BM25 索引 + 原始文档
         self.bm25: BM25Okapi| None = None

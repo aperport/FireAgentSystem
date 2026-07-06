@@ -308,16 +308,18 @@ class ContextFusionModule:
         chunks: list[Document],
         parent_map: dict[str, list[Document]],
         top_n: int = 3,
+        context_window: int = 1,
     ) -> list[Document]:
-        """附加父文档内容
+        """附加相邻上下文文档
 
-        将检索命中的子文档回填同一 source_file 下的完整父文档内容,
-        提供更丰富的上下文信息。
+        对命中的子文档，回填同一 source_file 下前后相邻的 chunk，
+        提供连贯上下文，而非整篇文档。
 
         Args:
             chunks: 检索命中的子文档
-            parent_map: source_file -> 同源子文档列表（由 db_retriever._build_parent_map() 构建）
-            top_n: 只回填排名前 N 的文档，避免上下文过长
+            parent_map: source_file -> 同源子文档列表（按入库顺序排列）
+            top_n: 只回填排名前 N 的文档
+            context_window: 前后各取几个相邻 chunk，默认1（即前1+自身+后1）
 
         Returns:
             list[Document]: 回填后的文档列表
@@ -328,31 +330,51 @@ class ContextFusionModule:
 
         top_chunks = chunks[:top_n]
         result: list[Document] = list(chunks)
+        seen_keys: set[str] = set()  # 去重：source_file + chunk id
 
         for chunk in top_chunks:
             source_file = chunk.metadata.get("source_file", "")
             if not source_file or source_file not in parent_map:
                 continue
 
-            # 获取同源的所有子文档，拼接为完整父文档内容
             sibling_docs = parent_map[source_file]
-            parent_content = "\n".join(doc.page_content for doc in sibling_docs)
+            # 找到命中 chunk 在同源列表中的位置
+            hit_id = chunk.metadata.get("id")
+            hit_index = -1
+            for i, doc in enumerate(sibling_docs):
+                if doc.metadata.get("id") == hit_id:
+                    hit_index = i
+                    break
+            if hit_index == -1:
+                continue
 
-            # 构建父文档，附加到结果末尾
-            parent_doc = Document(
-                page_content=parent_content,
-                metadata={
-                    "source_file": source_file,
-                    "source_name": chunk.metadata.get("source_name", ""),
-                    "category": chunk.metadata.get("category", ""),
-                    "title": chunk.metadata.get("title", ""),
-                    "parent_doc": True,
-                    "child_count": len(sibling_docs),
-                },
-            )
-            result.append(parent_doc)
+            # 取前后 context_window 个相邻 chunk
+            start = max(0, hit_index - context_window)
+            end = min(len(sibling_docs), hit_index + context_window + 1)
+            context_docs = sibling_docs[start:end]
+
+            for doc in context_docs:
+                dedup_key = f"{source_file}::{doc.metadata.get('id', '')}"
+                if dedup_key in seen_keys:
+                    continue
+                seen_keys.add(dedup_key)
+
+                # 跳过已在结果中的文档（避免重复）
+                existing_ids = {d.metadata.get("id") for d in result if d.metadata.get("id") is not None}
+                if doc.metadata.get("id") in existing_ids:
+                    continue
+
+                new_metadata = dict(doc.metadata)
+                new_metadata["context_fill"] = True
+                new_metadata["source_hit_id"] = hit_id
+                result.append(Document(
+                    page_content=doc.page_content,
+                    metadata=new_metadata,
+                ))
+
             logger.info(
-                f"父文档回填：source_file={source_file}，子文档数={len(sibling_docs)}"
+                f"上下文回填：source_file={source_file}，命中位置={hit_index}，"
+                f"回填范围=[{start},{end})，回填{len(context_docs)}个chunk"
             )
 
         return result

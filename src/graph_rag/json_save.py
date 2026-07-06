@@ -24,11 +24,11 @@ JSON 持久化工具 — 异步安全地读写 JSON 文件，主要用于保存�
 import asyncio
 from typing import Any
 
-import aiofiles
 from util_tools.logger import get_logger
 from datetime import datetime
 import json
 import os
+import aiofiles
 
 
 FILE_LOCK = asyncio.Lock()
@@ -72,7 +72,7 @@ async def save_json(data:Any, dir_name: str|None = None, file_name: str|None = N
     async with FILE_LOCK:
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         json_str = json.dumps(data, ensure_ascii=False, indent=4)
-        async with aiofiles.open(file_path, "w", encoding="utf-8") as f: 
+        async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
             await f.write(json_str)
 
 
@@ -122,11 +122,11 @@ async def append_json_item(dir_name: str, item: Any, file_name: str) -> None:
             async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
                 json_str = await f.read()
                 data = json.loads(json_str)
-        except:
+        except (FileNotFoundError, json.JSONDecodeError):
             data = []
         data.append(item)
         json_str = json.dumps(data, ensure_ascii=False, indent=4)
-        async with aiofiles.open(file_path, "w", encoding="utf-8") as f: 
+        async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
             await f.write(json_str)
     
 

@@ -23,6 +23,11 @@ GraphRAG 查询编排器 — 整个 GraphRAG Pipeline 的核心入口。
     - 接入 config.py：消除硬编码连接参数
     - 单例复用：PGVectorManager / HybridRetrievalModule 等应只初始化一次
 """
+import sys, os
+
+from dotenv import load_dotenv
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+load_dotenv()
 from agent.llm_config import DeepSeek_LLM
 from graph_rag.context_fusion import ContextFusionModule
 from graph_rag.entity_extractor import EntityExtractor
@@ -35,6 +40,7 @@ from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class GraphRAGOrchestrator:
     def __init__(self,query:str):
         self.query = query
@@ -46,8 +52,9 @@ class GraphRAGOrchestrator:
 
         # 2. 对实体进行向量检索与图遍历
         # 2.1 向量检索
-        PGV_DB = PGVectorManager(host="localhost",user="postgres",password="",dbname="fire_rag",port=5432)
+        PGV_DB = PGVectorManager(host=os.getenv("PG_HOST", "localhost"),user=os.getenv("PG_USER", "postgres"),password=os.getenv("PG_PASSWORD", "NewPass123!"),dbname=os.getenv("PG_DBNAME", "fire_rag"),port=54321)
         retrieval_module = HybridRetrievalModule(PGV_module=PGV_DB,llm_client=DeepSeek_LLM)
+        retrieval_module.rebuild_bm25_index()
         vectorRetriever = VectorRetriever(retrieval_module=retrieval_module)
         vector_result = await vectorRetriever.search(query=self.query)
 
@@ -56,7 +63,7 @@ class GraphRAGOrchestrator:
         graph_result = await graph_traverser.traverse()
 
         # 3. 对检索结果进行去重融合
-        context_fusion_module = ContextFusionModule()
+        context_fusion_module = ContextFusionModule(parent_map=retrieval_module.parent_map)
         result = await context_fusion_module.fuse(vector_docs=vector_result, graph_records=graph_result)
 
         # 4. 将答案存入json
@@ -70,6 +77,16 @@ class GraphRAGOrchestrator:
         await append_json_item(dir_name="./data/", item=Data, file_name="T")
 
         return result
+    
+async def main():
+    query = "消防法规第二十一条"
+    graph_rag_orchestrator = GraphRAGOrchestrator(query=query)
+    result = await graph_rag_orchestrator.rag_search()
+    print(result)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
 
 
         

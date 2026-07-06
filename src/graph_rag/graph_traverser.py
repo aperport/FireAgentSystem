@@ -40,6 +40,9 @@ import os
 from typing import LiteralString
 
 from neo4j import AsyncDriver
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 from agent.llm_config import DeepSeek_LLM
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers
@@ -69,8 +72,8 @@ class GraphTraverser:
       a_driver = await self.Neo4jDriver._get_async_driver()
       for entitie in self.extract_result.entities:
          if not entitie:
-            logger.info("提取结果为空，无法进行图遍历")
-            raise ValueError("提取结果为空，无法进行图遍历")
+            logger.info("提取结果为空，跳过该实体")
+            continue
          if entitie.type.lower() in ["module", "regulation", "equipment"]:
             logger.info("类型为 %s，进行图遍历", entitie.type)
             # 进行图遍历
@@ -87,9 +90,9 @@ class GraphTraverser:
             else:
                 logger.info("类型为 %s，无法进行图遍历，将进行llm查询", new_entitie.type) # type: ignore
                 result = await self.llm_query(new_entitie,a_driver) # type: ignore
-                if result is None:
-                    logger.info("图遍历结果为空，图数据库无相应数据")
-                    raise ValueError("图遍历结果为空，图数据库无相应数据")
+                if not result:
+                    logger.info("LLM图遍历结果为空")
+                    return []
                 return result
 
     async def by_moudle_query(self,entity:Entity,driver:AsyncDriver):
@@ -128,7 +131,7 @@ class GraphTraverser:
             result = records
         if not result:
             logger.info("图遍历结果为空，图数据库无相应数据")
-            raise ValueError("图遍历结果为空，图数据库无相应数据")
+            return []
         return result
     async def query_type(self,entity:Entity,driver:AsyncDriver):
         """
@@ -177,12 +180,14 @@ class GraphTraverser:
             result                              图遍历结果
         """
         llm = GraphQueries(DeepSeek_LLM)
-        query = await llm.query_llm(entity)
-        if not query:
+        result = await llm.query_llm(entity)
+        if not result:
             logger.info("LLM未正常生成查询语句，无法进行图遍历")
             raise ValueError("LLM生成查询语句失败")
+        query = result["query"]
+        params = result.get("params", {})
         async with driver.session(database=self.Neo4jDriver.database) as session:
-            query_result = await session.run(query)
+            query_result = await session.run(query, params)
             records = await query_result.data()
         if not records:
             logger.info("图遍历结果为空，图数据库无相应数据")

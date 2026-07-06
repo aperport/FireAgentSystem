@@ -53,6 +53,9 @@ from ragas.metrics import (
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 from agent.llm_config import DeepSeek_LLM
 from util_tools.logger import get_logger
 

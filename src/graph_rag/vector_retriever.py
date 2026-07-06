@@ -102,12 +102,7 @@ class VectorRetriever:
                 query, top_k=top_k, category=category, score_threshold=score_threshold
             )
 
-        # 2. 父文档回填
-        docs = self.fusion_module.attach_parent_documents(
-            docs, parent_map=self.fusion_module.parent_map
-        )
-
-        # 3. Token 预算截断
+        # 2. Token 预算截断
         if token_budget > 0:
             docs = self.fusion_module.truncate_to_budget(docs, token_budget)
 

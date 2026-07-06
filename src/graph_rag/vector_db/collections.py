@@ -40,6 +40,7 @@ from pgvector.psycopg2 import register_vector
 from util_tools.logger import get_logger
 from langchain_huggingface import HuggingFaceEmbeddings
 import psycopg2
+import psycopg2.extras
 
 logger = get_logger(__name__)
 
@@ -101,11 +102,11 @@ CREATE INDEX IF NOT EXISTS idx_image_dense ON fire_image_collection
 # 稠密检索（余弦相似度）
 DENSE_SEARCH_SQL = """
 SELECT id, text, category, source_file, title,
-       1 - (dense_vector <=> %s) AS score
+       1 - (dense_vector <=> %s::vector) AS score
 FROM {table_name}
 WHERE 1=1
 {category_filter}
-ORDER BY dense_vector <=> %s
+ORDER BY dense_vector <=> %s::vector
 LIMIT %s
 """
 
@@ -156,7 +157,7 @@ class PGVectorManager:
             return cls._instance
         return super().__new__(cls)
 
-    def __init__(self, host: str, user: str, password: str, dbname: str, port: int = 5432,model_name: str = "BAAI/bge-small-zh-v1.5"):
+    def __init__(self, host: str, user: str, password: str, dbname: str, port: int = 54321,model_name: str = "BAAI/bge-small-zh-v1.5"):
         if PGVectorManager._instance is not None:
             return  # 已初始化过，跳过
         self.host = host
@@ -216,11 +217,11 @@ class PGVectorManager:
         logger.info("向量索引构建完成")
 
     def get_cursor(self):
-        """获取游标"""
+        """获取游标（返回字典式游标，支持 row["column"] 取值）"""
         if self.conn is None or self.conn.closed:
             self._connect()
         assert self.conn is not None, "数据库未连接"
-        cur = self.conn.cursor()
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         register_vector(cur)
         return cur
 
