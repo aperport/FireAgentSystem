@@ -41,9 +41,69 @@ from util_tools.logger import get_logger
 logger = get_logger(__name__)
 
 
+# ===================== 全局单例：BM25 索引 =====================
+
+class _BM25Index:
+    """BM25 索引全局单例（进程级缓存）。
+
+    首次访问时从 PG 加载全表文本构建 BM25Okapi 索引，后续直接复用。
+    数据入库后调用 rebuild() 重建。
+    """
+    _instance: HybridRetrievalModule | None = None
+    _lock: bool = False  # ponytail: 简单锁，并发量低时够用
+
+    @classmethod
+    def get(cls) -> HybridRetrievalModule:
+        """获取 BM25 索引实例（懒加载）。"""
+        if cls._instance is None:
+            if cls._lock:
+                raise RuntimeError("BM25 索引正在构建中，请稍后重试")
+            cls._lock = True
+            try:
+                # ponytail: 从环境变量读取，无默认值，强制外部配置
+                pg = PGVectorManager(
+                    host=os.getenv("PG_HOST", "localhost"),
+                    user=os.getenv("PG_USER", "postgres"),
+                    password=os.getenv("PG_PASSWORD", ""),
+                    dbname=os.getenv("PG_DBNAME", "fire_rag"),
+                    port=int(os.getenv("PG_PORT", "5432")),
+                )
+                cls._instance = HybridRetrievalModule(
+                    PGV_module=pg,
+                    llm_client=DeepSeek_LLM,
+                )
+                cls._instance.rebuild_bm25_index()
+                logger.info("BM25 索引全局单例构建完成")
+            finally:
+                cls._lock = False
+        return cls._instance
+
+    @classmethod
+    def rebuild(cls) -> HybridRetrievalModule:
+        """数据入库后调用，重建 BM25 索引。"""
+        logger.info("BM25 索引重建触发")
+        cls._instance = None
+        return cls.get()
+
+
+# ===================== 全局单例：Neo4j 驱动 =====================
+
+class _Neo4jDriver:
+    """Neo4j 驱动全局单例。"""
+    _instance: GraphTraverser | None = None
+
+    @classmethod
+    def get(cls) -> GraphTraverser:
+        if cls._instance is None:
+            cls._instance = GraphTraverser(extract_result=None)
+            logger.info("Neo4j GraphTraverser 全局单例构建完成")
+        return cls._instance
+
+
 class GraphRAGOrchestrator:
-    def __init__(self,query:str):
+    def __init__(self, query: str):
         self.query = query
+        self.retrieval_module = _BM25Index.get()
 
     async def rag_search(self):
         # 1. 对问题进行实体抽取
@@ -52,18 +112,17 @@ class GraphRAGOrchestrator:
 
         # 2. 对实体进行向量检索与图遍历
         # 2.1 向量检索
-        PGV_DB = PGVectorManager(host=os.getenv("PG_HOST", "localhost"),user=os.getenv("PG_USER", "postgres"),password=os.getenv("PG_PASSWORD", "NewPass123!"),dbname=os.getenv("PG_DBNAME", "fire_rag"),port=54321)
-        retrieval_module = HybridRetrievalModule(PGV_module=PGV_DB,llm_client=DeepSeek_LLM)
-        retrieval_module.rebuild_bm25_index()
-        vectorRetriever = VectorRetriever(retrieval_module=retrieval_module)
+
+        vectorRetriever = VectorRetriever(retrieval_module=self.retrieval_module)
         vector_result = await vectorRetriever.search(query=self.query)
 
         # 2.2 图遍历
-        graph_traverser = GraphTraverser(extract_result=entity_result)
+        graph_traverser = _Neo4jDriver.get()
+        graph_traverser.extract_result = entity_result
         graph_result = await graph_traverser.traverse()
 
         # 3. 对检索结果进行去重融合
-        context_fusion_module = ContextFusionModule(parent_map=retrieval_module.parent_map)
+        context_fusion_module = ContextFusionModule(parent_map=self.retrieval_module.parent_map)
         result = await context_fusion_module.fuse(vector_docs=vector_result, graph_records=graph_result)
 
         # 4. 将答案存入json
@@ -96,14 +155,31 @@ class GraphQuery:
     """
     def __init__(self,query) -> None:
             self.query = query
+
+    async def graph_query(self):
+        entityExtractor = EntityExtractor(llm_client=DeepSeek_LLM,query=self.query)
+        entity_result = await entityExtractor.main_pip()
+        graph_traverser = GraphTraverser(extract_result=entity_result)
+        graph_result = await graph_traverser.traverse()
     
-    pass
 
 
 # 向量检索查询编排
 class VectorQuery:
-    def __init__(self,query) -> None:
-         self.query = query
+    def __init__(self, query) -> None:
+        self.query = query
+        self.retrieval_module = _BM25Index.get()
+    
+    async def vector_query(self):
+        """
+        通过向量检索返回结果
+        """
+
+        vectorRetriever = VectorRetriever(retrieval_module=self.retrieval_module)
+        vector_result = vectorRetriever.search(query=self.query)
+        return vector_result
+
+        
  
         
     

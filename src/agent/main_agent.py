@@ -152,7 +152,7 @@ async def create_main_agent(
     analyst_middleware = create_analyst_middleware(SUMMARY_MODEL, backend)
     # 将中间件注入到对应子Agent配置中
     for subagent in subagents:
-        if subagent.get("name") in ("fire-management-analyst", "analyst"):
+        if subagent.get("name") == "fire-management-analyst":
             subagent["middleware"] = analyst_middleware
 
     

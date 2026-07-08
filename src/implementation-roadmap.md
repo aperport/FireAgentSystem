@@ -15,11 +15,11 @@
 | **MCP Server 框架** | 70% | `server_main.py` + `http_base.py` + 工具注册完整，但所有工具均为 Mock 数据 |
 | **MCP 工具定义** | 90% | 11 个工具全部注册，Pydantic 数据模型（`mcp_tools_bean.py`）完整，Mock 返回结构正确 |
 | **中间件** | 80% | 3 个中间件全部实现，消防领域已适配；`memory_update` 仍用手动 JSON 解析 |
-| **GraphRAG 向量检索** | 75% | `PGVectorManager` + `HybridRetrievalModule` + `VectorRetriever` 已实现；PG 替代了设计文档中的 Milvus |
-| **GraphRAG 图数据库** | 40% | `Neo4jDriver` 连接管理 + `schema.py` 数据类已完成；`queries.py` 和 `graph_traverser.py` 为空 |
-| **GraphRAG 编排层** | 10% | `context_fusion.py` 部分实现（缺去重排序）；`orchestrator.py` / `entity_extractor.py` / `evaluator.py` 全部空 |
-| **数据入库管线** | 0% | `ingestion/` 全部为 docstring，`db_operator.py` 有基础实现但有 bug |
-| **API 视图层** | 0% | `api_view/` 为空 |
+| **GraphRAG 向量检索** | 90% | PGVectorManager + HybridRetrievalModule + VectorRetriever + ContextFusionModule 全部实现；去重/排序/父文档回填/Token截断完整 |
+| **GraphRAG 图数据库** | 85% | Neo4jDriver + schema.py + queries.py + writer.py 已完成；graph_traverser.py 三级降级路由已实现 |
+| **GraphRAG 编排层** | 75% | orchestrator.py 五步管线已实现（实体抽取→并行检索→去重融合→结果持久化），但存在硬编码连接参数和每次请求重建实例的问题 |
+| **GraphRAG 实体抽取** | 95% | entity_extractor.py LLM+NER并行抽取 + 融合去重完整；rule_extractors.py 条款号正则补充完整 |
+| **数据入库管线** | 70% | md_parser.py + splitter.py + embedding.py + db_operator.py + entity_relation_extractor.py + save_data.py 已实现；PDF/Office/图片解析仍为骨架 |
 | **项目入口** | 0% | `run.py` 只有 docstring，无实际代码 |
 | **测试** | 70% | Schema / MCP Tools / Middleware / SubAgent / E2E Phase1 测试已覆盖 |
 
@@ -117,11 +117,11 @@
 
 ---
 
-### Phase 2：GraphRAG 基础 — 向量检索真实化（5-7天）
+### Phase 2：GraphRAG 基础 — 向量检索真实化 ✅ 已完成
 
 **目标**：`knowledge_search` 工具从 Mock 替换为真实的 PG 向量检索，问答助手能基于入库文档回答问题。
 
-#### 2.1 实现 `graph_rag/config.py`
+#### 2.1 ~~实现 graph_rag/config.py~~ ⚠️ 仍为骨架
 
 ```
 当前状态：docstring 空文件
@@ -131,7 +131,7 @@
   - 配置验证（必填项检查）
 ```
 
-#### 2.2 修复并完善 `db_operator.py`
+#### 2.2 ~~修复并完善 db_operator.py~~ ✅ 已完成基础修复
 
 ```
 当前状态：有基础实现但有 bug
@@ -144,7 +144,7 @@
   - 重复数据检测（INSERT 前检查是否已存在）
 ```
 
-#### 2.3 实现最小数据入库管线
+#### 2.3 ~~实现最小数据入库管线~~ ✅ 已完成
 
 ```
 当前状态：ingestion/ 全部为空
@@ -160,7 +160,7 @@
   - biz_sync（Phase 3）
 ```
 
-#### 2.4 替换 `knowledge_search` 为真实检索
+#### 2.4 ~~替换 knowledge_search 为真实检索~~ ✅ 已完成
 
 ```
 当前状态：Mock 关键词匹配
@@ -173,7 +173,7 @@
   - graph_rag_search 和 graph_query 暂时保持 Mock（Phase 3 替换）
 ```
 
-#### 2.5 准备测试知识库数据
+#### 2.5 ~~准备测试知识库数据~~ ✅ 已完成
 
 ```
 需要准备：
@@ -192,11 +192,11 @@
 
 ---
 
-### Phase 3：GraphRAG 融合 — 图遍历 + 编排器（5-7天）
+### Phase 3：GraphRAG 融合 — 图遍历 + 编排器 ✅ 已完成
 
 **目标**：`graph_rag_search` 和 `graph_query` 从 Mock 替换为真实的向量+图融合检索。
 
-#### 3.1 实现 `graph_db/queries.py`
+#### 3.1 ~~实现 graph_db/queries.py~~ ✅ 已完成
 
 ```
 当前状态：docstring 空文件
@@ -207,7 +207,7 @@
 原则：全部用 $param 参数化，不做 f-string 拼接
 ```
 
-#### 3.2 实现 `graph_traverser.py`
+#### 3.2 ~~实现 graph_traverser.py~~ ✅ 已完成
 
 ```
 当前状态：docstring 空文件
@@ -218,7 +218,7 @@
   - 限定 1-2 跳，不做无限深度遍历
 ```
 
-#### 3.3 实现 `entity_extractor.py`
+#### 3.3 ~~实现 entity_extractor.py~~ ✅ 已完成
 
 ```
 当前状态：docstring 空文件
@@ -228,7 +228,7 @@
   - 路由逻辑：简单查询用 jieba，复杂查询用 LLM
 ```
 
-#### 3.4 完善 `context_fusion.py`
+#### 3.4 ~~完善 context_fusion.py~~ ✅ 已完成
 
 ```
 当前状态：父文档回填 + Token 截断已实现，缺实体去重和排序
@@ -238,7 +238,7 @@
   - 注：_rrf_merge 已在 db_retriever.py 中实现，可复用或提取为公共方法
 ```
 
-#### 3.5 实现 `orchestrator.py`
+#### 3.5 ~~实现 orchestrator.py~~ ✅ 已实现（需优化）
 
 ```
 当前状态：docstring 空文件
@@ -253,7 +253,7 @@
   - ThreadPoolExecutor 并行执行检索
 ```
 
-#### 3.6 替换 `knowledge_tools.py` 为真实调用
+#### 3.6 ~~替换 knowledge_tools.py 为真实调用~~ ✅ 已完成
 
 ```
 改造：
@@ -262,7 +262,7 @@
   - graph_query → 调用 GraphTraverser.traverse()
 ```
 
-#### 3.7 Neo4j 初始数据写入
+#### 3.7 ~~Neo4j 初始数据写入~~ ✅ 已完成
 
 ```
 手工或脚本写入测试数据：
@@ -284,7 +284,7 @@
 
 ---
 
-### Phase 4：MCP 工具真实化 — Java 后端对接（3-5天）
+### Phase 4：MCP 工具真实化 — Java 后端对接（待开始）
 
 **目标**：6 个明细工具 + 2 个高层工具从 Mock 替换为真实 Java 后端 API 调用。
 
@@ -505,32 +505,36 @@ src/
 │   ├── subagents/agents/fire_management_analyst.yaml # ✅ 完整
 │   └── tools/MCP_client.py             # ✅ 完整
 │
-├── graph_rag/                          # ⚠️ 30% 完成
-│   ├── config.py                       # ❌ 空 docstring
-│   ├── orchestrator.py                 # ❌ 空 docstring
-│   ├── entity_extractor.py             # ❌ 空 docstring
-│   ├── graph_traverser.py              # ❌ 空 docstring
-│   ├── evaluator.py                    # ❌ 空 docstring
+├── graph_rag/                          # ⚠️ 75% 完成
+│   ├── config.py                       # ⚠️ 骨架（docstring 描述完整配置项，待实现 pydantic-settings）
+│   ├── orchestrator.py                 # ✅ 五步管线实现（实体抽取→并行检索→去重融合→结果持久化）
+│   ├── entity_extractor.py             # ✅ LLM+NER 并行抽取 + 融合去重完整
+│   ├── graph_traverser.py              # ✅ 三级降级路由实现（模板→类型反查→LLM生成）
+│   ├── evaluator.py                    # ⚠️ 骨架（retrieval_evaluator.py 已实现判空 fallback）
 │   ├── vector_retriever.py             # ✅ 完整
-│   ├── context_fusion.py              # ⚠️ 60%（缺去重排序）
+│   ├── context_fusion.py              # ✅ 完整（去重/排序/父文档回填/Token截断）
+│   ├── json_save.py                    # ✅ 异步 JSON 持久化
+│   ├── rule_extractors.py              # ✅ 条款号正则抽取
+│   ├── retrieval_evaluator.py          # ✅ 检索结果判空 + fallback 机制
 │   ├── graph_db/connection.py          # ✅ 完整
 │   ├── graph_db/schema.py              # ✅ 完整
-│   ├── graph_db/queries.py             # ❌ 空 docstring
+│   ├── graph_db/queries.py             # ✅ 3种Cypher模板 + LLM动态查询
+│   ├── graph_db/writer.py              # ✅ UNWIND+MERGE批量写入
 │   ├── vector_db/collections.py        # ✅ 完整
-│   ├── vector_db/db_operator.py        # ⚠️ 70%（有bug）
+│   ├── vector_db/db_operator.py        # ⚠️ 70%（有bug，逐条INSERT待优化）
 │   ├── vector_db/db_retriever.py       # ✅ 完整
-│   └── ingestion/                      # ❌ 全部空
-│       ├── splitter.py
-│       ├── embedding.py
-│       ├── entity_relation_extractor.py
-│       ├── biz_sync.py
-│       └── doc_parser/
-│           ├── dispatcher.py
-│           ├── pdf_parser.py
-│           ├── image_parser.py
-│           ├── office_parser.py
-│           └── md_parser.py
-│
+│   └── ingestion/                      # ⚠️ 70% 完成
+│       ├── doc_parser/
+│       │   ├── md_parser.py            # ✅ Markdown解析+元数据增强
+│       │   ├── dispatcher.py           # ❌ 骨架（路由规则文档化）
+│       │   ├── pdf_parser.py           # ❌ 骨架（DotsOCR/PyMuPDF方案）
+│       │   ├── office_parser.py        # ❌ 骨架（Unstructured方案）
+│       │   └── image_parser.py         # ❌ 骨架（OCR+多模态描述方案）
+│       ├── splitter.py                 # ✅ 标题切分+语义二次切分+图片分离
+│       ├── embedding.py                # ✅ HuggingFace bge-small-zh-v1.5
+│       ├── entity_relation_extractor.py # ✅ 文档级实体抽取+Neo4j写入
+│       ├── biz_sync.py                 # ❌ 骨架（Java后端数据同步）
+│       └── save_data.py                # ✅ 入库编排顶层入口
 ├── mcp_server/                         # ⚠️ 70% 完成
 │   ├── server_main.py                  # ✅ 完整
 │   ├── server_config.py                # ✅ 完整

@@ -23,11 +23,20 @@ from langchain.tools import BaseTool
 logger = get_logger(__name__)
 
 #MCP Server 连接配置，与魔塔空间连接类似，不过连接格式为streamable-http
+
+ErpApiConfig = {
+    "url": "http://127.0.0.1:8000/mcp",
+    "transport": "streamable-http",
+}
+SearchConfig = {
+    "command":"python",
+    "args":["-m","./src/agent/tools/RAG_Tools"],
+    "transport": "stidio",
+}
+
 MCP_SERVER_CONFIG = {
-    "erp_api":{
-        "url": "http://127.0.0.1:8000/mcp",
-        "transport": "streamable-http",
-    }
+    "ErpApi": ErpApiConfig,
+    "Search": SearchConfig
 }
 """
 此处为示例，方便理解一个为sse。另一个为stdi。
