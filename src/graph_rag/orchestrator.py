@@ -89,5 +89,21 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
+# 图数据库查询编排
+class GraphQuery:
+    """目前流程：大模型抽取实体，生成sql语句，查询返回结果
+       优化思路：大模型抽取实体，使用通用查询进行二跳，将关系映射成短句，将AB通过映射拼接，向量化每一条结果，与问题进行语义匹配，按照评分对查询结果进行重排，返回结果及评分。
+    """
+    def __init__(self,query) -> None:
+            self.query = query
+    
+    pass
+
+
+# 向量检索查询编排
+class VectorQuery:
+    def __init__(self,query) -> None:
+         self.query = query
+ 
         
     
