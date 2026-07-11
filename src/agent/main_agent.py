@@ -277,7 +277,7 @@ def get_agent():
     return agent
 
 
-async def get_agent_async():
+async def get_agent_async(config: RunnableConfig|None = None):
     """
         异步获取 agent 实例，懒加载方式
 
@@ -291,7 +291,7 @@ async def get_agent_async():
     if isinstance(agent, _AgentProxy):
         if agent._is_initialized:
             return agent
-        agent._agent = await create_main_agent()
+        agent._agent = await create_main_agent(config)
         return agent._agent
     return agent
 
@@ -308,7 +308,7 @@ async def start_main_agent(query: str,person: person,configs: RunnableConfig):
                                             #  ,configurable={"thread_id": f"{thread_id}",})
     user_id = person.user_id
     username = person.username
-    agent = await get_agent_async()
+    agent = await get_agent_async(config=configs)
     result = await agent.ainvoke({"messages":[HumanMessage(content=query)]},configs=configs)
     # 寻找最后一条AI回答
     answer = "未找到相关回答"
