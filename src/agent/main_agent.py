@@ -21,13 +21,16 @@ import asyncio
 import logging
 import os
 import sys
+import uuid
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StoreBackend
+from langchain.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain.agents.middleware import (
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
 )
+from pydantic import BaseModel
 from agent.schema import FireLogisticsContext
 from agent.memory.prompts import system_prompt
 from agent.backends.sandbox_setup import setup_sandbox
@@ -291,3 +294,27 @@ async def get_agent_async():
         agent._agent = await create_main_agent()
         return agent._agent
     return agent
+
+
+class person(BaseModel):
+    user_id: str
+    username: str
+    dept: str|None = None
+
+
+
+async def start_main_agent(query: str,person: person,configs: RunnableConfig):
+    #  config : RunnableConfig = RunnableConfig(metadata={"user_id": f"{user_id}", "username": f"{username}"},run_name=f"{username}_main_agent"
+                                            #  ,configurable={"thread_id": f"{thread_id}",})
+    user_id = person.user_id
+    username = person.username
+    agent = await get_agent_async()
+    result = await agent.ainvoke({"messages":[HumanMessage(content=query)]},configs=configs)
+    # 寻找最后一条AI回答
+    answer = "未找到相关回答"
+    messages = result["messages"]
+    for mes in reversed(messages):
+        if isinstance(mes, AIMessage):
+           answer = mes.content
+           break 
+    return answer
