@@ -290,7 +290,7 @@ async def get_agent_async():
 
 async def start_main_agent(query: str,configs: RunnableConfig):
     agent = await get_agent_async()
-    result = await agent.ainvoke({"messages":[HumanMessage(content=query)]},configs=configs)
+    result = await agent.ainvoke({"messages":[HumanMessage(content=query)]},config=configs)
     # 寻找最后一条AI回答
     answer = "未找到相关回答"
     messages = result["messages"]

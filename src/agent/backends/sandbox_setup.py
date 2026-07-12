@@ -20,7 +20,7 @@ import shlex
 from opensandbox import SandboxSync
 from opensandbox.config import ConnectionConfigSync
 
-from src.agent.backends.custom_opensandbox import OpenSandboxBackend
+from agent.backends.custom_opensandbox import OpenSandboxBackend
 from agent.config import LOCAL_SKILLS_DIR
 from util_tools.logger import get_logger
 

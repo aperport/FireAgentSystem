@@ -25,16 +25,16 @@
 由 MCP Tool (knowledge_search) 和 orchestrator.py 调用。
 
 ⚠️ 已知问题：
-    1. search() 是 async 方法，但内部调用的 retrieval_module.dense_search() /
-       bm25_search() / hybrid_search() 均为同步方法，未使用 await
-    2. attach_parent_documents() 和 truncate_to_budget() 也是同步方法，同样未 await
-    3. HybridRetrievalModule 初始化时未调用 initialize()，bm25 索引为空
+    1. ~~search() 是 async 方法，但内部调用的检索方法均为同步~~ → 已用 asyncio.to_thread 包装
+    2. HybridRetrievalModule 初始化时未调用 initialize()，bm25 索引为空
 
 待优化：
     - 将 db_retriever 的检索方法改为异步，或使用 asyncio.to_thread 包装
     - VectorRetriever 初始化时应触发 BM25 索引构建
     - 增加 retrieval_evaluator 集成：检索结果为空时自动 fallback
 """
+import asyncio
+
 from langchain_core.documents import Document
 from graph_rag.vector_db.db_retriever import HybridRetrievalModule
 from graph_rag.context_fusion import ContextFusionModule
@@ -85,25 +85,25 @@ class VectorRetriever:
         Returns:
             list[Document]: 检索结果列表
         """
-        # 1. 按策略分发检索
+        # 1. 按策略分发检索（to_thread 避免同步 DB 调用阻塞事件循环）
         if search_type == "dense":
-            docs = self.retrieval_module.dense_search(
-                query, top_k=top_k, category=category, score_threshold=score_threshold
+            docs = await asyncio.to_thread(
+                self.retrieval_module.dense_search, query, top_k=top_k, category=category, score_threshold=score_threshold
             )
         elif search_type == "sparse":
-            docs = self.retrieval_module.bm25_search(query, top_K=top_k)
+            docs = await asyncio.to_thread(self.retrieval_module.bm25_search, query, top_K=top_k)
         elif search_type == "hybrid":
-            docs = self.retrieval_module.hybrid_search(
-                query, top_k=top_k, category=category, score_threshold=score_threshold
+            docs = await asyncio.to_thread(
+                self.retrieval_module.hybrid_search, query, top_k=top_k, category=category, score_threshold=score_threshold
             )
         else:
             logger.warning(f"未知的检索类型：{search_type}，回退到 hybrid")
-            docs = self.retrieval_module.hybrid_search(
-                query, top_k=top_k, category=category, score_threshold=score_threshold
+            docs = await asyncio.to_thread(
+                self.retrieval_module.hybrid_search, query, top_k=top_k, category=category, score_threshold=score_threshold
             )
 
         # 2. Token 预算截断
         if token_budget > 0:
-            docs = self.fusion_module.truncate_to_budget(docs, token_budget)
+            docs = await asyncio.to_thread(self.fusion_module.truncate_to_budget, docs, token_budget)
 
         return docs
