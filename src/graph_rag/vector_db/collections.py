@@ -151,13 +151,13 @@ class PGVectorManager:
 
     _instance = None
 
-    def __new__(cls, host: str, user: str, password: str, dbname: str, port: int = 5432):
+    def __new__(cls, host: str, user: str, password: str, dbname: str, port: int  ):
         """单例保护：已有实例时直接返回，避免重复创建连接"""
         if cls._instance is not None:
             return cls._instance
         return super().__new__(cls)
 
-    def __init__(self, host: str, user: str, password: str, dbname: str, port: int = 54321,model_name: str = "BAAI/bge-small-zh-v1.5"):
+    def __init__(self, host: str, user: str, password: str, dbname: str, port: int ,model_name: str = "BAAI/bge-small-zh-v1.5"):
         if PGVectorManager._instance is not None:
             return  # 已初始化过，跳过
         self.host = host

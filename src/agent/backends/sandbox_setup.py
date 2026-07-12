@@ -39,7 +39,7 @@ def setup_sandbox(config=None, sandbox_id=None, image=None) -> OpenSandboxBacken
     尝试按照id重连沙箱，若未找到，或者沙箱已失效，则创建一个新的沙箱，并将技能文件播种到沙箱中，以及python必要的环境变量
     和依赖，并返回一个OpenSandboxBackend对象
     Args:
-        config: LangGraph RunnableConfig（可选，不再依赖其 api_key/skills_dir 属性）
+        config: （可选，不再依赖其 api_key/skills_dir 属性）
         sandbox_id: 沙箱id，如果不传则创建一个新的沙箱
         image: 沙箱镜像，如果不传则使用默认镜像
     Returns:

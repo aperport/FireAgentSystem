@@ -50,6 +50,8 @@ httpx>=0.27.0
 
 # ---------- 数据库 ----------
 pymongo>=4.8.0
+langgraph-checkpoint-postgres>=0.1.0
+psycopg[binary]>=3.0.0
 
 # ---------- 数据模型 ----------
 pydantic>=2.9.0

@@ -10,7 +10,7 @@ Store配置：
     STORE = InMemoryStore()  — 用户偏好存储，重启丢失，后续应迁至持久化Store
 
 Checkpoint配置：
-    MongoDBSavers — Agent对话状态持久化，支持Human-in-the-Loop和跨重启恢复
+    PostgresSaver — Agent对话状态持久化，支持Human-in-the-Loop和跨重启恢复
 
 子Agent名称映射：
     SCOPE_MAP = {"main": "main", "fire-qa-assistant": "qa", "fire-management-analyst": "management"}
@@ -18,12 +18,18 @@ Checkpoint配置：
 模型配置：
     SUMMARY_MODEL = DeepSeek_LLM  — 摘要/实体抽取用模型
 """
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
 from agent.llm_config import DeepSeek_LLM
-from langchain.chat_models import BaseChatModel
+from langchain_core.language_models import BaseChatModel
 from langgraph.store.memory import InMemoryStore
-from langgraph.checkpoint.mongodb import MongoDBSaver
-from pymongo import MongoClient
+from langgraph.checkpoint.postgres import PostgresSaver
+import psycopg
+
+# 加载 .env 环境变量
+load_dotenv()
 
 LOCAL_SKILLS_DIR = "skills"
 # 沙箱skills文件夹路径
@@ -57,22 +63,22 @@ STORE = InMemoryStore()
 
 
 
-
-# MongoDBSaver: 用于持久化 Agent 对话状态（State/Checkpoints）的组件，属于 Checkpointer。
+# PostgresSaver: 用于持久化 Agent 对话状态（State/Checkpoints）的组件，属于 Checkpointer。
 # 作用：管理会话信息（Session），支持多轮对话短期记忆、Human-in-the-Loop（状态中断/审批）以及跨重启的对话恢复。
 # 注意：它只负责当前 Thread（线程）的执行流和状态，不负责跨会话的长期记忆或用户偏好（User Preferences）。
-# 类型：同样支持保存在内存（InMemory）和持久化（MongoDB）两种方式。
-# ---------- MongoDB 配置（用于持久化 Agent 短期对话状态/State） ----------
-MONGODB_URI = "mongodb://root:123456@39.100.100.28:27017/?authSource=admin"
-MONGODB_DB_NAME = "langchain_db"
-MONGODB_CHECKPOINT_COLLECTION = "checkpoints"
-_mongodb_client = MongoClient(MONGODB_URI)
-# 检查点
-CHECKPOINT = MongoDBSaver(
-    client=_mongodb_client,
-    db_name=MONGODB_DB_NAME,
-    checkpoint_collection_name=MONGODB_CHECKPOINT_COLLECTION,
-)
+# 类型：支持保存在内存（InMemory）和持久化（PostgreSQL）两种方式。
+# ---------- PostgreSQL 配置（用于持久化 Agent 短期对话状态 State）----------
+PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_PORT = int(os.getenv("PG_PORT", "5432"))
+PG_USER = os.getenv("PG_USER", "postgres")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "")
+PG_DBNAME = os.getenv("PG_DBNAME", "postgres")
+
+_postgres_conn_str = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DBNAME}"
+
+with PostgresSaver.from_conn_string(_postgres_conn_str) as CHECKPOINT:
+    CHECKPOINT.setup()
+
 
 # 技能 StoreBackend 命名空间（按 Agent scope 组织，无用户隔离）
 SKILLS_STORE_NAMESPACE = ("skills",)

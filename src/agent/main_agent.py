@@ -21,7 +21,6 @@ import asyncio
 import logging
 import os
 import sys
-import uuid
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StoreBackend
 from langchain.messages import AIMessage, HumanMessage
@@ -30,11 +29,10 @@ from langchain.agents.middleware import (
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
 )
-from pydantic import BaseModel
 from agent.schema import FireLogisticsContext
 from agent.memory.prompts import system_prompt
 from agent.backends.sandbox_setup import setup_sandbox
-from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, SKILLS_STORE_NAMESPACE, STORE, SUMMARY_MODEL
+from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, STORE, SUMMARY_MODEL
 from agent.middleware_config import create_analyst_middleware
 from agent.middlewares.context_injection import ContextInjectionMiddleware
 from agent.middlewares.memory_update import MemoryUpdateMiddleware
@@ -62,8 +60,7 @@ _setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def create_main_agent(
-        config: RunnableConfig | None = None,
+async def create_main_agent(sandbox_config: dict | None = None,
         *,
         sandbox_id: str | None = None,
 ):
@@ -79,19 +76,14 @@ async def create_main_agent(
     8. 主Agent中间件
     9. 创建Agent
 
-    arg:
-        config: LangGraph RunnableConfig，由 langgraph 平台注入。 
-            核心配置类：
-            传递运行时上下文 - 如用户ID、会话ID等
-            控制递归深度 - 防止 Agent 无限循环调用工具
-            配置回调 - 用于日志记录、监控、调试
-            条件分支 - 根据配置参数决定图的不同执行路径
+    arg: 
         sandbox_id: 沙箱ID
+        sandbox_config: 沙箱配置
     """
 
     logger.info("创建主Agent")
     try:
-        sandbox_backend =  setup_sandbox(config=config, sandbox_id=sandbox_id)
+        sandbox_backend =  setup_sandbox(config=sandbox_config, sandbox_id=sandbox_id)
     except Exception as e:
         logger.error(f"创建主Agent失败，原因：{e}")
         raise RuntimeError("因沙箱配置失败，无法构建智能体")
@@ -152,7 +144,7 @@ async def create_main_agent(
     # 创建子Agent中间件,此处使用了子智能体，需根据实际业务设置
     # 子Agent中间件通过 subagent 配置的 middleware 字段传入
     logger.info("开始创建子Agent中间件")  
-    analyst_middleware = create_analyst_middleware(SUMMARY_MODEL, backend)
+    analyst_middleware = create_analyst_middleware(SUMMARY_MODEL, backend())
     # 将中间件注入到对应子Agent配置中
     for subagent in subagents:
         if subagent.get("name") == "fire-management-analyst":
@@ -277,7 +269,7 @@ def get_agent():
     return agent
 
 
-async def get_agent_async(config: RunnableConfig|None = None):
+async def get_agent_async():
     """
         异步获取 agent 实例，懒加载方式
 
@@ -291,24 +283,13 @@ async def get_agent_async(config: RunnableConfig|None = None):
     if isinstance(agent, _AgentProxy):
         if agent._is_initialized:
             return agent
-        agent._agent = await create_main_agent(config)
+        agent._agent = await create_main_agent()
         return agent._agent
     return agent
 
 
-class person(BaseModel):
-    user_id: str
-    username: str
-    dept: str|None = None
-
-
-
-async def start_main_agent(query: str,person: person,configs: RunnableConfig):
-    #  config : RunnableConfig = RunnableConfig(metadata={"user_id": f"{user_id}", "username": f"{username}"},run_name=f"{username}_main_agent"
-                                            #  ,configurable={"thread_id": f"{thread_id}",})
-    user_id = person.user_id
-    username = person.username
-    agent = await get_agent_async(config=configs)
+async def start_main_agent(query: str,configs: RunnableConfig):
+    agent = await get_agent_async()
     result = await agent.ainvoke({"messages":[HumanMessage(content=query)]},configs=configs)
     # 寻找最后一条AI回答
     answer = "未找到相关回答"

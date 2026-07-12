@@ -12,16 +12,6 @@ GraphRAG 查询编排器 — 整个 GraphRAG Pipeline 的核心入口。
 
 由 MCP Tool (knowledge_tools.py 中的 graph_rag_search) 调用。
 
-⚠️ 已知问题：
-    1. PG 连接参数硬编码（host="localhost", password=""），应从 config.py 读取
-    2. 每次请求都重新创建 PGVectorManager / HybridRetrievalModule / GraphTraverser，
-       应改为初始化时创建并复用
-    3. 未接入 retrieval_evaluator.py 的空结果 fallback 机制
-
-待实现：
-    - 接入 retrieval_evaluator：向量/图检索为空时自动 fallback
-    - 接入 config.py：消除硬编码连接参数
-    - 单例复用：PGVectorManager / HybridRetrievalModule 等应只初始化一次
 """
 import sys, os
 
@@ -64,7 +54,7 @@ class _BM25Index:
                 pg = PGVectorManager(
                     host=os.getenv("PG_HOST", "localhost"),
                     user=os.getenv("PG_USER", "postgres"),
-                    password=os.getenv("PG_PASSWORD", ""),
+                    password=os.getenv("PG_PASSWORD", "1"),
                     dbname=os.getenv("PG_DBNAME", "fire_rag"),
                     port=int(os.getenv("PG_PORT", "5432")),
                 )
@@ -105,7 +95,7 @@ class GraphRAGOrchestrator:
         self.query = query
         self.retrieval_module = _BM25Index.get()
 
-    async def rag_search(self):
+    async def rag_search(self,top_k=5):
         # 1. 对问题进行实体抽取
         entityExtractor = EntityExtractor(llm_client=DeepSeek_LLM,query=self.query)
         entity_result = await entityExtractor.main_pip()
@@ -114,7 +104,7 @@ class GraphRAGOrchestrator:
         # 2.1 向量检索
 
         vectorRetriever = VectorRetriever(retrieval_module=self.retrieval_module)
-        vector_result = await vectorRetriever.search(query=self.query)
+        vector_result = await vectorRetriever.search(query=self.query,top_k=top_k)
 
         # 2.2 图遍历
         graph_traverser = _Neo4jDriver.get()
@@ -161,6 +151,7 @@ class GraphQuery:
         entity_result = await entityExtractor.main_pip()
         graph_traverser = GraphTraverser(extract_result=entity_result)
         graph_result = await graph_traverser.traverse()
+        return graph_result
     
 
 

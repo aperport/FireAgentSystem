@@ -16,16 +16,20 @@ MCP 工具客户端 — 连接 MCP Server 获取所有可用工具。
 
 连接地址从环境变量 MCP_SERVER_URL 读取。
 """
+import os
+
+from dotenv import load_dotenv
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from util_tools.logger import get_logger
 from langchain.tools import BaseTool
 
+load_dotenv()
 logger = get_logger(__name__)
 
 # MCP Server 连接配置（Streamable HTTP）
 MCP_SERVER_CONFIG = {
     "FireMCP": {
-        "url": "http://127.0.0.1:8000/mcp",
+        "url": os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8000"),
         "transport": "streamable-http",
     },
 }

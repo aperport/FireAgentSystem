@@ -28,7 +28,7 @@ Hook: aafter_agent
 
 import json
 from typing import Any, Dict
-from datetime import datetime, timezone
+from datetime import datetime
 from langchain.agents.middleware.types import AgentState
 from langchain_core.messages import BaseMessage
 from langchain.chat_models import BaseChatModel
@@ -175,7 +175,7 @@ AI回复摘要：{ai_summary}
         except Exception:
             logger.warning("MemoryUpdateMiddleware: LLM 提取失败，跳过本次更新", exc_info=True)
 
-        return {"equipment": [], "query": ""}
+        return {"equipment": [], "query": "", "zones": []}
     
 
     def _create_file_value(self,content_str: str) -> dict:

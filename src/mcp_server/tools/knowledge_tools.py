@@ -38,10 +38,7 @@ def register_knowledge_tools(mcp: FastMCP):
     @mcp.tool(name="graph_rag_search")
     async def graph_rag_search(
         query: str,
-        search_type: str = "hybrid",
-        max_vector_results: int = 5,
-        graph_depth: int = 2,
-        score_threshold: float = 0.7,
+        top_k: int = 5,
     ) -> dict:
         """
         GraphRAG组合检索：向量检索+图遍历+融合，一键返回完整上下文。
@@ -49,18 +46,14 @@ def register_knowledge_tools(mcp: FastMCP):
 
         Args:
             query: 检索问题，如"ICU病房消防系统要满足哪些要求"
-            search_type: 检索类型，可选：hybrid(默认)/vector_only/graph_only
-            max_vector_results: 向量检索结果数量上限，默认5
-            graph_depth: 图遍历深度，默认2
-            score_threshold: 相似度阈值，默认0.7
-
+            top_k: 返回结果数量上限，默认5
         Returns:
             检索结果，包含 answer、sources、score、status
         """
         logger.info("graph_rag_search 调用: query=%s", query)
         try:
             orchestrator = GraphRAGOrchestrator(query=query)
-            result = await orchestrator.rag_search()
+            result = await orchestrator.rag_search(top_k=top_k)
             logger.info("graph_rag_search 完成: %d 条结果", len(result))
             return {
                 "answer": "\n\n".join([doc.page_content for doc in result[:3]]),
@@ -89,7 +82,6 @@ def register_knowledge_tools(mcp: FastMCP):
     async def knowledge_search(
         query: str,
         max_results: int = 5,
-        score_threshold: float = 0.7,
     ) -> dict:
         """
         纯向量检索。适用于简单问题（单文档/单条款可直接回答）。
@@ -98,7 +90,6 @@ def register_knowledge_tools(mcp: FastMCP):
         Args:
             query: 检索问题
             max_results: 返回结果数量上限，默认5
-            score_threshold: 相似度阈值，默认0.7
 
         Returns:
             检索结果列表，包含 answer、source、score
@@ -131,9 +122,8 @@ def register_knowledge_tools(mcp: FastMCP):
     @mcp.tool(name="graph_query")
     async def graph_query(
         entity: str,
-        relation_types: list[str] | None = None,
-        depth: int = 2,
-        direction: str = "outgoing",
+        
+
     ) -> dict:
         """
         纯图遍历查询。适用于已知起点做深度遍历（追踪某法规所有引用/故障影响链分析）。

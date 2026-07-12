@@ -183,7 +183,7 @@ class GraphTraverser:
         result = await llm.query_llm(entity)
         if not result:
             logger.info("LLM未正常生成查询语句，无法进行图遍历")
-            raise ValueError("LLM生成查询语句失败")
+            return ("LLM生成查询语句失败")
         query = result["query"]
         params = result.get("params", {})
         async with driver.session(database=self.Neo4jDriver.database) as session:
@@ -191,7 +191,7 @@ class GraphTraverser:
             records = await query_result.data()
         if not records:
             logger.info("图遍历结果为空，图数据库无相应数据")
-            raise ValueError("图遍历结果为空，图数据库无相应数据")
+            return ("图遍历结果为空，图数据库无相应数据")
         return records
         
         

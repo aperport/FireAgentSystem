@@ -3,7 +3,7 @@ MCP Server 入口 — FastMCP Streamable HTTP 服务，注册所有消防后勤�
 """
 
 from fastmcp import FastMCP
-from http_base import mcp_lifespan
+from mcp_server.http_base import mcp_lifespan
 from mcp_server.server_config import MCP_HOST, MCP_PATH, MCP_PORT
 from mcp_server.tools import (
     register_knowledge_tools,

@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 def create_analyst_middleware(model, backend) -> list:
     """
-    为 procurement-analyst 子 Agent 创建中间件列表。
+    为 fire-management-analyst 子 Agent 创建中间件列表。
 
     包含:
     - SummarizationToolMiddleware: 阶段完成后主动压缩上下文
@@ -42,6 +42,15 @@ def create_analyst_middleware(model, backend) -> list:
     Returns:
         中间件实例列表
     """
+    return [
+        create_summarization_tool_middleware(model, backend),
+        ModelCallLimitMiddleware(run_limit=50),
+        ToolCallLimitMiddleware(run_limit=200),
+    ]
+
+
+def create_qa_middleware(model, backend) -> list:
+    """为 fire-qa-assistant 子 Agent 创建中间件列表。配置同 analyst。"""
     return [
         create_summarization_tool_middleware(model, backend),
         ModelCallLimitMiddleware(run_limit=50),

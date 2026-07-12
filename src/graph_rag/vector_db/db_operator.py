@@ -18,12 +18,6 @@
 数据入库后需调用 PGVectorManager.build_vector_indexes() 构建向量索引，
 以及 db_retriever.rebuild_bm25_index() 重建 BM25 索引。
 
-⚠️ 已知问题：
-    1. PG 连接参数从环境变量读取，但 PG_PASSWORD 为空时才报错，
-       应在初始化时统一校验
-    2. 批量写入使用逐条 execute，应改为 executemany 或 copy_from 提升性能
-    3. ❌ insert_chunks / insert_picture 无去重，重复执行会写入重复数据
-       （相同 source_file + title 的文档应跳过，重跑前需手动 TRUNCATE）
 
 待优化：
     - 使用批量写入（executemany / copy_from）提升入库性能
@@ -125,6 +119,7 @@ class DBOperator:
                         doc.metadata.get("category", ""),
                         doc.metadata.get("image_path", ""),
                         doc.metadata.get("source_file", ""),
+                        doc.metadata.get("source_name", ""),
                         doc.metadata.get("title", ""),
                         vector,
                     ))

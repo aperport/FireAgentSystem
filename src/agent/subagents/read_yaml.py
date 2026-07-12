@@ -18,7 +18,6 @@ from langchain.tools import BaseTool
 from pathlib import Path
 import yaml
 from agent.tools.MCP_client import load_mcp_tools
-from mcp_server import tools
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)

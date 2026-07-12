@@ -183,7 +183,7 @@ class Neo4jBatchWriter:
                         total += len(batch)
                     except Exception as e:
                         logger.error(f"Neo4j {label}写入失败: type={type_key}, batch={start}: {e}")
-                        raise
+                        return total
 
             logger.debug(f"{label}写入: {type_key} × {len(rows)}")
 
