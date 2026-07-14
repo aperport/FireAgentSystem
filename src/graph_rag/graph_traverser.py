@@ -77,7 +77,7 @@ class GraphTraverser:
          if entitie.type.lower() in ["module", "regulation", "equipment"]:
             logger.info("类型为 %s，进行图遍历", entitie.type)
             # 进行图遍历
-            result = await self.by_moudle_query(entitie,a_driver)
+            result = await self.by_module_query(entitie,a_driver)
             return result
          else:
             # 如果图反查结果存在，则取出类型回填入关键词类，并进行遍历，否则执行llm查询的函数
@@ -85,7 +85,7 @@ class GraphTraverser:
             new_entitie = await self.query_type(entitie,a_driver)
             # 判断回填的type是否存在模板
             if new_entitie.type.lower() in ["module", "regulation", "equipment"]: # type: ignore
-                result = await self.by_moudle_query(new_entitie,a_driver) # type: ignore
+                result = await self.by_module_query(new_entitie,a_driver) # type: ignore
                 return result
             else:
                 logger.info("类型为 %s，无法进行图遍历，将进行llm查询", new_entitie.type) # type: ignore
@@ -95,7 +95,7 @@ class GraphTraverser:
                     return []
                 return result
 
-    async def by_moudle_query(self,entity:Entity,driver:AsyncDriver):
+    async def by_module_query(self,entity:Entity,driver:AsyncDriver):
         """
         根据模板进行图遍历
         args:

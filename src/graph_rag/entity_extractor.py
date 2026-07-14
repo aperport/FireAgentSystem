@@ -27,12 +27,6 @@
     后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，
     LLM作为兜底，进而降低LLM调用次数与时间。
 
-TODO: ~~重构为通用抽取引擎，供 ingestion/entity_relation_extractor.py 复用~~ ✅ 已完成
-    1. ✅ self.query 参数扩展为通用文本输入，同时兼容查询和文档两种场景
-    2. ✅ _build_extract_prompt() 由子类覆盖，按场景切换 prompt
-    3. ✅ LLM/NER/融合/去重等核心方法两端完全共用
-    4. ✅ ingestion/entity_relation_extractor.py 精简为薄编排层
-    5. ✅ NODE_TYPES/REL_TYPES 统一到 graph_db/schema.py
 """
 import asyncio
 import os
@@ -283,7 +277,7 @@ class EntityExtractor:
         llm_task = asyncio.create_task(self.entity_extract_llm())
         ner_task = asyncio.create_task(self.predict())
 
-        # 2. 聚合等待，并对大模型设置 2.0 秒的硬超时防死锁
+        # 2. 聚合等待，并对大模型设置 6.0 秒的硬超时防死锁
         llm_result: ExtractResult | None = None
         try:
             llm_result = await asyncio.wait_for(llm_task, timeout=6.0)  # type: ignore[assignment]

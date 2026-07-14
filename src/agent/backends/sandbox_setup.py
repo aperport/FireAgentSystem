@@ -34,7 +34,7 @@ OPENSANDBOX_DOMAIN = os.getenv("OPENSANDBOX_DOMAIN", "api.opensandbox.io")
 OPENSANDBOX_IMAGE = os.getenv("OPENSANDBOX_IMAGE", "ubuntu")
 
 
-def setup_sandbox(config=None, sandbox_id=None, image=None) -> OpenSandboxBackend:
+def setup_sandbox( sandbox_id=None, image=None, config: dict = {}) -> OpenSandboxBackend:
     """
     尝试按照id重连沙箱，若未找到，或者沙箱已失效，则创建一个新的沙箱，并将技能文件播种到沙箱中，以及python必要的环境变量
     和依赖，并返回一个OpenSandboxBackend对象
@@ -46,9 +46,9 @@ def setup_sandbox(config=None, sandbox_id=None, image=None) -> OpenSandboxBacken
         OpenSandboxBackend对象
     """
     # 优先从 config 获取，回退到环境变量/默认值
-    api_key = getattr(config, "api_key", None) or OPENSANDBOX_API_KEY
-    domain = getattr(config, "domain", None) or OPENSANDBOX_DOMAIN
-    skills_dir = getattr(config, "skills_dir", None) or LOCAL_SKILLS_DIR
+    api_key = config.get("api_key", None) or OPENSANDBOX_API_KEY
+    domain = config.get("domain", None) or OPENSANDBOX_DOMAIN
+    skills_dir = config.get("skills_dir", None) or LOCAL_SKILLS_DIR
 
     if not api_key:
         raise RuntimeError("OpenSandbox API Key 未配置，请设置环境变量 OPENSANDBOX_API_KEY")
@@ -72,8 +72,8 @@ def setup_sandbox(config=None, sandbox_id=None, image=None) -> OpenSandboxBacken
             logger.warning(f"沙箱重连失败 ({sandbox_id}): {e}，将创建新沙箱")
             sandbox = None
 
-    if sandbox is None:
-        image = image or getattr(config, "image", None) or OPENSANDBOX_IMAGE
+    if  not sandbox :
+        image = image or config.get("image", None) or OPENSANDBOX_IMAGE
         logger.info(f"创建新沙箱，镜像: {image}")
         sandbox = SandboxSync.create(
             image=image,

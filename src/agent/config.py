@@ -26,7 +26,6 @@ from agent.llm_config import DeepSeek_LLM
 from langchain_core.language_models import BaseChatModel
 from langgraph.store.memory import InMemoryStore
 from langgraph.checkpoint.postgres import PostgresSaver
-import psycopg
 
 # 加载 .env 环境变量
 load_dotenv()
@@ -76,8 +75,8 @@ PG_DBNAME = os.getenv("PG_DBNAME", "postgres")
 
 _postgres_conn_str = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DBNAME}"
 
-with PostgresSaver.from_conn_string(_postgres_conn_str) as CHECKPOINT:
-    CHECKPOINT.setup()
+CHECKPOINT = PostgresSaver.from_conn_string(_postgres_conn_str)
+CHECKPOINT.setup()
 
 
 # 技能 StoreBackend 命名空间（按 Agent scope 组织，无用户隔离）
