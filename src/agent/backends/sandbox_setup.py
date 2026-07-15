@@ -107,12 +107,16 @@ def create_environment_variables(backend: OpenSandboxBackend) -> None:
     Args:
         backend: OpenSandboxBackend对象
     """
-    # 创建 skills 专用虚拟环境
-    result = backend.execute("python3 -m venv /opt/skills-venv")
-    if result.exit_code != 0:
-        logger.warning(f"创建 venv 失败: {result.output}")
-        return
-    logger.debug("skills-venv 创建成功")
+    # 检测环境，如果不存在则创建
+    logger.info("正在创建 skills-venv 环境...")
+    if backend.execute(f"test -d /opt/skills-venv").exit_code == 0:
+        logger.info("skills-venv 已存在，跳过创建")
+    else:
+        result = backend.execute("python3 -m venv /opt/skills-venv")
+        if result.exit_code != 0:
+            logger.warning(f"创建 venv 失败: {result.output}")
+            return
+        logger.info("skills-venv 创建成功")
 
     # 如果存在 requirements.txt，安装依赖
     check = backend.execute(f"test -f {shlex.quote(SANDBOX_SKILLS_DIR)}/requirements.txt")

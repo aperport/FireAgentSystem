@@ -60,7 +60,7 @@ _setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def create_main_agent(sandbox_config: dict | None = None,
+async def create_main_agent(sandbox_config: dict = {},
         *,
         sandbox_id: str | None = None,
 ):
@@ -86,7 +86,7 @@ async def create_main_agent(sandbox_config: dict | None = None,
         sandbox_backend =  setup_sandbox(config=sandbox_config, sandbox_id=sandbox_id)
     except Exception as e:
         logger.error(f"创建主Agent失败，原因：{e}")
-        raise RuntimeError("因沙箱配置失败，无法构建智能体")
+        raise RuntimeError("因沙箱配置失败，无法构建智能体") from e
     
     # 上传Agent.md到沙箱
     logger.info("正在上传Agent.md到沙箱")
@@ -143,8 +143,9 @@ async def create_main_agent(sandbox_config: dict | None = None,
 
     # 创建子Agent中间件,此处使用了子智能体，需根据实际业务设置
     # 子Agent中间件通过 subagent 配置的 middleware 字段传入
-    logger.info("开始创建子Agent中间件")  
-    analyst_middleware = create_analyst_middleware(SUMMARY_MODEL, backend())
+    logger.info("开始创建子Agent中间件")
+    compositeBackend = backend() 
+    analyst_middleware = create_analyst_middleware(SUMMARY_MODEL, compositeBackend)
     # 将中间件注入到对应子Agent配置中
     for subagent in subagents:
         if subagent.get("name") == "fire-management-analyst":
@@ -179,7 +180,7 @@ async def create_main_agent(sandbox_config: dict | None = None,
             tools=available_tools,                  # 工具，来源很多，可以是MCP工具（有三种传输方式），也可以是自定义工具
             subagents=subagents,                    # 子智能体，类型subagent类型，即字典，里面含有name、description、system_prompt、tool字段，存在校验；另一种是CompiledSubAgent，即langgraph的智能体组合。
             middleware=main_mid,                    # 中间件。
-            backend=backend(),                      # 后端：指定数据存储、文件系统、或者记忆（Memory）持久化的具体底层实现，存在几个默认实现，目前使用自定义OpenSandBox。
+            backend=compositeBackend,               # 后端：指定数据存储、文件系统、或者记忆（Memory）持久化的具体底层实现，存在几个默认实现，目前使用自定义OpenSandBox。
             store=STORE,                            # 长期记忆持久化，如用户偏好等。
             checkpointer=CHECKPOINT,                # 检查点，短期记忆，设置之后配合thread_id可实现连续会话
             context_schema=FireLogisticsContext,    # 传递一个Pydantic类，将根据属性提取参数。1.状态固化与规范化，强行规定了 Agent 的记忆里只能存什么、必须存什么，运行时会严格维护该字段；

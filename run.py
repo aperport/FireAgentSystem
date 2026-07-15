@@ -18,6 +18,8 @@ import sys
 import os
 import uuid
 
+from agent.main_agent import start_main_agent
+
 # ponytail: 确保 src/ 在搜索路径中
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
@@ -26,11 +28,11 @@ def run_agent():
     """Agent 模式：CLI 交互对话"""
     from langchain.messages import HumanMessage
     from langchain_core.runnables import RunnableConfig
-    from src.agent.main_agent import get_agent_async
-    from src.api_view.servers import query_user
+    from agent.main_agent import get_agent_async
+    from api_view.servers import query_user
 
     thread_id = uuid.uuid4().hex
-    user = query_user(user_name="用户", thread_id=thread_id,query="")
+    user = query_user(user_name="用户", user_id="user", thread_id=thread_id,query="")
     config = RunnableConfig(
         metadata={"user_id": user.user_id, "username": user.user_name},
         run_name=f"{user.user_name}_main_agent",
@@ -41,8 +43,21 @@ def run_agent():
     print(f"会话ID: {thread_id}\n")
 
     async def _chat():
-
-
+        while True:
+            user.query = input("请输入问题：")
+            if user.query == "exit":
+                break
+            if user.query == "new":
+                thread_id = uuid.uuid4().hex
+                user = query_user(user_name="用户", user_id="user", thread_id=thread_id,query=input("请输入问题："))
+                config = RunnableConfig(
+                    metadata={"user_id": user.user_id, "username": user.user_name},
+                    run_name=f"{user.user_name}_main_agent",
+                    configurable={"thread_id": thread_id, "user_id": user.user_id, "username": user.user_name},
+                )
+                print(f"会话ID：{thread_id}\n")
+            answer = await start_main_agent(user.query,config)
+            print(f"回答：{answer}\n")
     asyncio.run(_chat())
 
 
@@ -55,7 +70,7 @@ def run_mcp_server():
 def run_api_server():
     """API Server 模式：启动 FastAPI HTTP 服务"""
     import uvicorn
-    from src.api_view.servers import app
+    from api_view.servers import app
 
     host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", "9000"))

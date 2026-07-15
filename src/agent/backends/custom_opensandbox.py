@@ -10,6 +10,7 @@ OpenSandbox 后端封装 — 适配器模式，将 SandboxSync 封装为 BaseSan
 管理助手可在沙箱中执行 Python 代码进行自定义分析。
 """
 from datetime import timedelta
+from typing import Literal
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
@@ -47,7 +48,7 @@ class OpenSandboxBackend(BaseSandbox):
         logger.debug("获取沙盒 ID: %s", sandbox_id)
         return sandbox_id
 
-    # 沙箱中非交互式 shell 不会加载 /etc/profile，需要手动注入环境变量
+    # 沙箱中非交互式 shell 不会加载 /etc/profile，需要手动注入环境变量，确保沙箱内可以找到必要的依赖
     SANDBOX_PATH = (
         "/opt/skills-venv/bin:"
         "/opt/python/versions/cpython-3.11.14-linux-x86_64-gnu/bin:"
@@ -71,7 +72,7 @@ class OpenSandboxBackend(BaseSandbox):
         :return: ExecuteResponse，包含命令输出和退出码
         """
         effective_timeout = timeout if timeout is not None else self._timeout
-        full_command = f"export PATH=\"{self.SANDBOX_PATH}:$PATH\" && {command}"
+        full_command = f"export PATH=\"{self.SANDBOX_PATH}:$PATH\" && \"{command}\""
         # 一段时间后杀死对象，用来限制进程时间
         opts = RunCommandOpts(timeout=timedelta(seconds=effective_timeout))
 
