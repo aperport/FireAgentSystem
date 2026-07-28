@@ -43,4 +43,10 @@
   仅写Neo4j：extract_and_write_document(paragraphs, llm_client)
 """
 
+# [修改] 原先 __init__.py 只有文档字符串，未实际导出函数。
+# 现在从 save_data 导出顶层编排函数，使 from graph_rag.ingestion import ingest_markdown 可用。
+from graph_rag.ingestion.save_data import ingest_markdown, ingest_directory, IngestResult
+
+__all__ = ["ingest_markdown", "ingest_directory", "IngestResult"]
+
 

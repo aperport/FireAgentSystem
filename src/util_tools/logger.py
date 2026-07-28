@@ -1,39 +1,13 @@
 # logger.py
-import logging
-from logging.handlers import RotatingFileHandler
+# [简化理由] 原先使用标准库 logging + RotatingFileHandler 手动配置，
+# 但 loguru 已在 requirements.txt 中，功能更完善（自动轮转、彩色输出、异常追踪）。
+# 现改为直接代理 loguru，保持 get_logger(name) 接口不变，所有调用方无需修改。
+from loguru import logger
 
-def get_logger(name=__name__, level=logging.INFO):
+def get_logger(name: str = __name__):
+    """获取 logger 实例（代理 loguru，保持接口兼容）。
+
+    Args:
+        name: 模块名（loguru 默认不使用 name 分层，此处仅作标记）
     """
-    全局日志工具：一次配置，所有文件直接调用
-    :param level: 设置默认输出的最底日志级别，默认为 INFO
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)  # 最低日志级别 (总开关)
-    logger.handlers.clear()  # 防止重复打印
-
-    # 日志格式（时间 + 文件名 + 行号 + 级别 + 信息）
-    formatter = logging.Formatter(
-        "%(asctime)s - %(filename)s - %(lineno)d - %(levelname)s - %(message)s"
-    )
-
-    # ===================== 输出到文件（自动生成 app.log）=====================
-    # 自动分割日志，防止文件过大
-    file_handler = RotatingFileHandler(
-        "app.log",          # 日志自动保存在这个文件里
-        maxBytes=10*1024*1024,  # 10M
-        backupCount=5,
-        encoding="utf-8"    # 解决中文乱码
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(level)
-
-    # ===================== 输出到控制台 =====================
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(level)
-
-    # 添加处理器
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
-    return logger
+    return logger.bind(name=name)

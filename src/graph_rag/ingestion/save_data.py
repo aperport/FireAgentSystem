@@ -161,18 +161,7 @@ async def ingest_directory(
     logger.info(f"目录入库完成: {dir_path}, 成功={ok}/{len(results)}")
     return results
 
-async def main():
-    # 单文件测试
-    # results = await ingest_markdown("./docs/某文件.md")
 
-    # 目录批量测试
-    results = await ingest_directory("./docs")
-    for r in results:
-        print(f"{'✅' if r.success else '❌'} {r.file_path}: "
-              f"文本={r.text_chunks}, 图片={r.image_docs}, "
-              f"实体={r.entities}, 关系={r.relations}"
-              f"{f' 错误={r.error}' if r.error else ''}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-    
+# [删除理由] main() + if __name__ == "__main__": 测试入口已删除。
+# 生产代码不应包含模块级测试，测试应放在 src/test/ 目录下，通过 pytest 运行。
+# 如需手动测试入库，可使用: python -m pytest src/test/ -v 或在 run.py 中添加入口。

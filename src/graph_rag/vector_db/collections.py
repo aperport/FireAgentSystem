@@ -29,7 +29,6 @@ fire_image_collection 独有字段：
     1. Embedding 模型名和设备硬编码（BAAI/bge-small-zh-v1.5 + cuda），
        应从 config.py 读取
     2. IVFFlat 索引 lists=100 在数据量小时效果差，应根据数据量动态调整
-    3. 单例模式（__new__）在多数据库场景下不灵活
 
 待优化：
     - Embedding 配置外部化
@@ -128,19 +127,27 @@ ORDER BY id
 
 # ──────────────── 数据库连接管理 ────────────────
 
+# [简化理由] 原先使用 __new__ + _instance 实现单例，增加了 __init__ 跳过逻辑
+# 和 _instance 管理的复杂度。当前项目只有一个 PG 实例，改为模块级全局变量
+# _pg_instance 持有唯一实例，由调用方通过 get_pg_instance() 获取。
+# 这样 PGVectorManager 本身保持为普通类，更易测试和理解。
+
+_pg_instance: "PGVectorManager | None" = None
+
+
 class PGVectorManager:
     """PostgreSQL + pgvector 连接管理器
 
     职责：
-        - 管理连接（单例模式）
+        - 管理连接
         - 初始化表结构（DDL）
         - 提供游标
         - 优雅关闭
 
     使用方式：
-        from graph_rag.vector_db.collections import PGVectorManager
+        from graph_rag.vector_db.collections import get_pg_instance
         import os
-        pg = PGVectorManager(
+        pg = get_pg_instance(
             host=os.getenv("PG_HOST", "localhost"),
             user=os.getenv("PG_USER", "postgres"),
             password=os.getenv("PG_PASSWORD", ""),
@@ -149,17 +156,7 @@ class PGVectorManager:
         pg.init_tables()  # 首次部署时调用
     """
 
-    _instance = None
-
-    def __new__(cls, host: str, user: str, password: str, dbname: str, port: int  ):
-        """单例保护：已有实例时直接返回，避免重复创建连接"""
-        if cls._instance is not None:
-            return cls._instance
-        return super().__new__(cls)
-
-    def __init__(self, host: str, user: str, password: str, dbname: str, port: int ,model_name: str = "BAAI/bge-small-zh-v1.5"):
-        if PGVectorManager._instance is not None:
-            return  # 已初始化过，跳过
+    def __init__(self, host: str, user: str, password: str, dbname: str, port: int, model_name: str = "BAAI/bge-small-zh-v1.5"):
         self.host = host
         self.user = user
         self.password = password
@@ -170,7 +167,6 @@ class PGVectorManager:
         self.embeddings = None
         self._connect()
         self._set_up_embeddings()
-        PGVectorManager._instance = self  # 连接成功后才注册为单例
 
     def _connect(self):
         """建立连接并注册 pgvector 扩展"""
@@ -230,4 +226,18 @@ class PGVectorManager:
         if self.conn and not self.conn.closed:
             self.conn.close()
             logger.info("PostgreSQL 连接已关闭")
-        PGVectorManager._instance = None
+
+
+def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int, model_name: str = "BAAI/bge-small-zh-v1.5") -> PGVectorManager:
+    """获取 PGVectorManager 全局单例（懒加载）。
+
+    首次调用时创建实例，后续调用返回同一实例。
+    替代原先的 __new__ 单例模式，更清晰且易于测试。
+    """
+    global _pg_instance
+    if _pg_instance is None:
+        _pg_instance = PGVectorManager(
+            host=host, user=user, password=password,
+            dbname=dbname, port=port, model_name=model_name,
+        )
+    return _pg_instance

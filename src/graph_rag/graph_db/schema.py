@@ -167,108 +167,12 @@ class ZoneNode:
     risk_level: Optional[str] = None             # 风险等级
 
 
-# ──────────────── 关系类型定义 ────────────────
-# 以下 dataclass 定义各关系类型的属性字段，
-# 为 entity_relation_extractor.py 写入和 graph_traverser.py 查询提供结构约束。
-# 关系方向约定：source → target，与 Cypher (source)-[REL]->(target) 一致。
-
-# ── 系统操作子图 ──
-
-@dataclass
-class ContainsFunctionRel:
-    """包含功能关系 — Module → Function（模块包含哪些功能）"""
-    source_label: str = "Module"                 # 起点节点标签
-    target_label: str = "Function"               # 终点节点标签
-    rel_type: str = "包含功能"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class HasStepRel:
-    """操作步骤关系 — Function → Step（功能包含哪些操作步骤）"""
-    source_label: str = "Function"               # 起点节点标签
-    target_label: str = "Step"                   # 终点节点标签
-    rel_type: str = "操作步骤"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class NextStepRel:
-    """下一步关系 — Step → Step（步骤的执行顺序）"""
-    source_label: str = "Step"                   # 起点节点标签
-    target_label: str = "Step"                   # 终点节点标签
-    rel_type: str = "下一步"                      # Neo4j 关系类型名
-    step_order: Optional[int] = None             # 步骤序号
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class PrerequisiteRel:
-    """前置条件关系 — Step → Requirement（执行步骤所需的前置条件）"""
-    source_label: str = "Step"                   # 起点节点标签
-    target_label: str = "Requirement"            # 终点节点标签
-    rel_type: str = "前置条件"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-
-# ── 法规关联子图 ──
-
-@dataclass
-class ContainsClauseRel:
-    """包含条款关系 — Regulation → Clause（法规包含哪些条款）"""
-    source_label: str = "Regulation"             # 起点节点标签
-    target_label: str = "Clause"                 # 终点节点标签
-    rel_type: str = "包含条款"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class ReferencesRel:
-    """引用关系 — Clause → Standard（条款引用的技术标准）"""
-    source_label: str = "Clause"                 # 起点节点标签
-    target_label: str = "Standard"               # 终点节点标签
-    rel_type: str = "引用"                        # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class ApplicableRegulationRel:
-    """适用法规关系 — ZoneType → Regulation（区域类型适用的法规）"""
-    source_label: str = "ZoneType"               # 起点节点标签
-    target_label: str = "Regulation"             # 终点节点标签
-    rel_type: str = "适用法规"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class RequiresConfigRel:
-    """要求配置关系 — Clause → EquipmentType（条款对设备类型的配置要求）"""
-    source_label: str = "Clause"                 # 起点节点标签
-    target_label: str = "EquipmentType"          # 终点节点标签
-    rel_type: str = "要求配置"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-
-# ── 设备依赖子图 ──
-
-@dataclass
-class BelongsToCategoryRel:
-    """属于分类关系 — Equipment → EquipmentType（设备属于哪种设备类型）"""
-    source_label: str = "Equipment"              # 起点节点标签
-    target_label: str = "EquipmentType"          # 终点节点标签
-    rel_type: str = "属于分类"                    # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class InstalledInRel:
-    """安装于关系 — Equipment → Zone（设备安装在哪个区域）"""
-    source_label: str = "Equipment"              # 起点节点标签
-    target_label: str = "Zone"                   # 终点节点标签
-    rel_type: str = "安装于"                      # Neo4j 关系类型名
-    description: Optional[str] = None            # 关系描述
-
-@dataclass
-class DependsOnRel:
-    """依赖关系 — Equipment → Equipment（设备间的供电/控制依赖）"""
-    source_label: str = "Equipment"              # 起点节点标签
-    target_label: str = "Equipment"              # 终点节点标签
-    rel_type: str = "依赖"                        # Neo4j 关系类型名
-    dep_type: Optional[str] = None               # 依赖类型（供电/控制）
-    description: Optional[str] = None            # 关系描述
+# [删除理由] 11 个关系 dataclass（ContainsFunctionRel, HasStepRel, NextStepRel,
+# PrerequisiteRel, ContainsClauseRel, ReferencesRel, ApplicableRegulationRel,
+# RequiresConfigRel, BelongsToCategoryRel, InstalledInRel, DependsOnRel）已删除。
+# 原因：writer.py 的 _build_merge_rel_cypher() 直接从 REL_TYPES 字典生成 Cypher，
+# 不读取这些 dataclass。它们在整个代码库中无任何引用方，属于死代码。
+# 关系的结构约束已由 REL_TYPES 字典和 validate_extract_result() 充分表达。
 
 
 # ──────────────── 抽取结果校验 ────────────────

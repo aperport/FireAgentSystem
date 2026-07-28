@@ -27,7 +27,7 @@
 import os
 from dotenv import load_dotenv
 from langchain_core.documents import Document
-from graph_rag.vector_db.collections import PGVectorManager
+from graph_rag.vector_db.collections import get_pg_instance
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -57,7 +57,7 @@ class DBOperator:
                 raise ValueError(
                     "PG_PASSWORD 环境变量未设置，请在 .env 中配置 PostgreSQL 密码"
                 )
-            self._pg = PGVectorManager(
+            self._pg = get_pg_instance(
                 host=_PG_HOST,
                 user=_PG_USER,
                 password=_PG_PASSWORD,
@@ -67,63 +67,60 @@ class DBOperator:
             logger.info(f"PGVectorManager 已初始化: {_PG_HOST}:{_PG_PORT}/{_PG_DBNAME}")
         return self._pg
 
-    def insert_chunks(self, chunks: list[Document]) -> None:
+    # [合并理由] insert_chunks 和 insert_picture 逻辑几乎完全相同，
+    # 只有表名和字段不同。提取公共方法 _insert_documents() 减少重复代码。
+    def _insert_documents(
+        self,
+        table_name: str,
+        columns: list[str],
+        documents: list[Document],
+        metadata_keys: list[str],
+    ) -> None:
+        """通用向量文档写入方法。
+
+        Args:
+            table_name: 目标表名（如 fire_doc_collection / fire_image_collection）
+            columns: 列名列表（最后一列必须是 dense_vector）
+            documents: 待写入的文档列表
+            metadata_keys: 从 metadata 中提取的字段名列表（与 columns 前 N-1 列对应，不含 text 和 dense_vector）
         """
-        将向量化后的文档片段写入 PostgreSQL + pgvector 向量表。
-        """
+        if not documents:
+            return
         try:
-            if chunks:
-                texts = [chunk.page_content for chunk in chunks]
-                vectors = self.pg.embeddings.embed_documents(texts)  # type: ignore
-                logger.info(f"向量表 fire_doc_collection 写入 {len(texts)} 条数据")
-                # 将向量化后的文档片段写入 PostgreSQL + pgvector 向量表
-                insert_sql = """
-                INSERT INTO  fire_doc_collection (text, category, source_file,source_name, title, dense_vector)
-                VALUES (%s, %s, %s, %s, %s, %s);
-                """
-                # 对应取出数据
-                cur = self.pg.get_cursor()
-                for chunk, vector in zip(chunks, vectors):
-                    cur.execute(insert_sql, (
-                        chunk.page_content,
-                        chunk.metadata.get("category", ""),
-                        chunk.metadata.get("source_file", ""),
-                        chunk.metadata.get("source_name", ""),
-                        chunk.metadata.get("title", ""),
-                        vector,
-                    ))
-                logger.info(f"向量表 fire_doc_collection 写入完成，共 {len(texts)} 条数据")
+            texts = [doc.page_content for doc in documents]
+            vectors = self.pg.embeddings.embed_documents(texts)  # type: ignore
+            logger.info(f"向量表 {table_name} 写入 {len(texts)} 条数据")
+
+            col_str = ", ".join(columns)
+            placeholders = ", ".join(["%s"] * len(columns))
+            insert_sql = f"INSERT INTO {table_name} ({col_str}) VALUES ({placeholders});"
+
+            cur = self.pg.get_cursor()
+            for doc, vector in zip(documents, vectors):
+                values = [doc.page_content]
+                for key in metadata_keys:
+                    values.append(doc.metadata.get(key, ""))
+                values.append(vector)
+                cur.execute(insert_sql, tuple(values))
+            logger.info(f"向量表 {table_name} 写入完成，共 {len(texts)} 条数据")
         except Exception as e:
-            logger.error(f"向量表 fire_doc_collection 写入失败：{e}")
+            logger.error(f"向量表 {table_name} 写入失败：{e}")
             raise
 
+    def insert_chunks(self, chunks: list[Document]) -> None:
+        """将向量化后的文档片段写入 fire_doc_collection。"""
+        self._insert_documents(
+            table_name="fire_doc_collection",
+            columns=["text", "category", "source_file", "source_name", "title", "dense_vector"],
+            documents=chunks,
+            metadata_keys=["category", "source_file", "source_name", "title"],
+        )
 
     def insert_picture(self, documents: list[Document]) -> None:
-        """
-        将向量化的图片描述写入 PostgreSQL + pgvector 向量表。
-        图片描述文本来自 OCR 或多模态模型对图像的描述，无需分块，整条写入。
-        """
-        try:
-            if documents:
-                texts = [doc.page_content for doc in documents]
-                vectors = self.pg.embeddings.embed_documents(texts)  # type: ignore
-                logger.info(f"向量表 fire_image_collection 写入 {len(texts)} 条数据")
-                insert_sql = """
-                INSERT INTO fire_image_collection (text, category, image_path, source_file, source_name, title, dense_vector)
-                VALUES (%s, %s, %s, %s, %s, %s, %s);
-                """
-                cur = self.pg.get_cursor()
-                for doc, vector in zip(documents, vectors):
-                    cur.execute(insert_sql, (
-                        doc.page_content,
-                        doc.metadata.get("category", ""),
-                        doc.metadata.get("image_path", ""),
-                        doc.metadata.get("source_file", ""),
-                        doc.metadata.get("source_name", ""),
-                        doc.metadata.get("title", ""),
-                        vector,
-                    ))
-                logger.info(f"向量表 fire_image_collection 写入完成，共 {len(texts)} 条数据")
-        except Exception as e:
-            logger.error(f"向量表 fire_image_collection 写入失败：{e}")
-            raise
+        """将向量化的图片描述写入 fire_image_collection。"""
+        self._insert_documents(
+            table_name="fire_image_collection",
+            columns=["text", "category", "image_path", "source_file", "source_name", "title", "dense_vector"],
+            documents=documents,
+            metadata_keys=["category", "image_path", "source_file", "source_name", "title"],
+        )

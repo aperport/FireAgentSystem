@@ -14,6 +14,7 @@ GraphRAG 查询编排器 — 整个 GraphRAG Pipeline 的核心入口。
 
 """
 import sys, os
+import threading
 
 from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -23,7 +24,7 @@ from graph_rag.context_fusion import ContextFusionModule
 from graph_rag.entity_extractor import EntityExtractor
 from graph_rag.graph_traverser import GraphTraverser
 from graph_rag.json_save import append_json_item
-from graph_rag.vector_db.collections import PGVectorManager
+from graph_rag.vector_db.collections import get_pg_instance
 from graph_rag.vector_db.db_retriever import HybridRetrievalModule
 from graph_rag.vector_retriever import VectorRetriever
 from util_tools.logger import get_logger
@@ -40,18 +41,17 @@ class _BM25Index:
     数据入库后调用 rebuild() 重建。
     """
     _instance: HybridRetrievalModule | None = None
-    _lock: bool = False  # ponytail: 简单锁，并发量低时够用
+    _lock = threading.Lock()  # [修改] 布尔锁改为 threading.Lock，避免竞态条件
 
     @classmethod
     def get(cls) -> HybridRetrievalModule:
         """获取 BM25 索引实例（懒加载）。"""
         if cls._instance is None:
-            if cls._lock:
-                raise RuntimeError("BM25 索引正在构建中，请稍后重试")
-            cls._lock = True
-            try:
-                # ponytail: 从环境变量读取，无默认值，强制外部配置
-                pg = PGVectorManager(
+            with cls._lock:
+                # 双重检查：获取锁后再确认一次
+                if cls._instance is not None:
+                    return cls._instance
+                pg = get_pg_instance(
                     host=os.getenv("PG_HOST", "localhost"),
                     user=os.getenv("PG_USER", "postgres"),
                     password=os.getenv("PG_PASSWORD", "1"),
@@ -64,15 +64,14 @@ class _BM25Index:
                 )
                 cls._instance.rebuild_bm25_index()
                 logger.info("BM25 索引全局单例构建完成")
-            finally:
-                cls._lock = False
         return cls._instance
 
     @classmethod
     def rebuild(cls) -> HybridRetrievalModule:
         """数据入库后调用，重建 BM25 索引。"""
         logger.info("BM25 索引重建触发")
-        cls._instance = None
+        with cls._lock:
+            cls._instance = None
         return cls.get()
 
 
@@ -126,51 +125,11 @@ class GraphRAGOrchestrator:
         await append_json_item(dir_name="./data/", item=Data, file_name="T")
 
         return result
-    
-async def main():
-    query = "消防法规第二十一条"
-    graph_rag_orchestrator = GraphRAGOrchestrator(query=query)
-    result = await graph_rag_orchestrator.rag_search()
-    print(result)
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
 
 
-# 图数据库查询编排
-class GraphQuery:
-    """目前流程：大模型抽取实体，生成sql语句，查询返回结果
-       优化思路：大模型抽取实体，使用通用查询进行二跳，将关系映射成短句，将AB通过映射拼接，向量化每一条结果，与问题进行语义匹配，按照评分对查询结果进行重排，返回结果及评分。
-    """
-    def __init__(self,query) -> None:
-            self.query = query
-
-    async def graph_query(self):
-        entityExtractor = EntityExtractor(llm_client=DeepSeek_LLM,query=self.query)
-        entity_result = await entityExtractor.main_pip()
-        graph_traverser = GraphTraverser(extract_result=entity_result)
-        graph_result = await graph_traverser.traverse()
-        return graph_result
-    
-
-
-# 向量检索查询编排
-class VectorQuery:
-    def __init__(self, query) -> None:
-        self.query = query
-        self.retrieval_module = _BM25Index.get()
-    
-    async def vector_query(self):
-        """
-        通过向量检索返回结果
-        """
-
-        vectorRetriever = VectorRetriever(retrieval_module=self.retrieval_module)
-        vector_result = vectorRetriever.search(query=self.query)
-        return vector_result
-
-        
- 
-        
-    
+# [删除理由] 以下代码已删除：
+# 1. main() + if __name__ == "__main__": 测试入口 — 生产代码不应包含模块级测试，
+#    测试应放在 src/test/ 目录下，通过 pytest 运行。
+# 2. GraphQuery / VectorQuery 类 — 与 GraphRAGOrchestrator.rag_search() 逻辑重复，
+#    GraphRAGOrchestrator 已整合了图遍历和向量检索，这两个独立类无额外价值。
+#    如需单独查询，knowledge_tools.py 已改为直接调用底层 VectorRetriever / GraphTraverser。

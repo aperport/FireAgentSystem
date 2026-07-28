@@ -60,6 +60,17 @@ _setup_logging()
 logger = logging.getLogger(__name__)
 
 
+# [统一异常处理] 原先 5 处重复的 try/except + raise RuntimeError 模式
+# 统一为 _step() 辅助函数，减少重复代码。
+async def _step(name: str, coro):
+    """执行异步步骤，失败时统一包装为 RuntimeError 并附带步骤名称。"""
+    try:
+        return await coro
+    except Exception as e:
+        logger.error(f"{name}失败，原因：{e}")
+        raise RuntimeError(f"因{name}失败，无法构建智能体") from e
+
+
 async def create_main_agent(sandbox_config: dict = {},
         *,
         sandbox_id: str | None = None,
@@ -82,11 +93,7 @@ async def create_main_agent(sandbox_config: dict = {},
     """
 
     logger.info("创建主Agent")
-    try:
-        sandbox_backend =  setup_sandbox(config=sandbox_config, sandbox_id=sandbox_id)
-    except Exception as e:
-        logger.error(f"创建主Agent失败，原因：{e}")
-        raise RuntimeError("因沙箱配置失败，无法构建智能体") from e
+    sandbox_backend = await _step("沙箱配置", setup_sandbox(config=sandbox_config, sandbox_id=sandbox_id))
     
     # 上传Agent.md到沙箱
     logger.info("正在上传Agent.md到沙箱")
@@ -113,12 +120,8 @@ async def create_main_agent(sandbox_config: dict = {},
 
     # MCP工具加载
     logger.info("开始加载MCP工具")
-    try:
-        all_mcp_tools = await load_mcp_tools()
-        logger.info("MCP工具加载完成")
-    except Exception as e:
-        logger.error(f"MCP工具加载失败，原因：{e}")
-        raise RuntimeError("因MCP工具加载失败，无法构建智能体")
+    all_mcp_tools = await _step("MCP工具加载", load_mcp_tools())
+    logger.info("MCP工具加载完成")
     
     # 创建技能管理工具 
 
@@ -132,14 +135,10 @@ async def create_main_agent(sandbox_config: dict = {},
 
     # 子Agent的Yaml加载（assemble_subagents 是异步函数，需要 await）
     logger.info("开始加载子Agent")
-    try:
-        subagents  = await assemble_subagent()
-        if not subagents :
-            logger.error("子Agent加载失败，原因：子Agent为空,将使用主智能体运行")
-        logger.info("子Agent加载完成")
-    except Exception as e:
-        logger.error(f"子Agent加载失败，原因：{e}")
-        raise RuntimeError("因子Agent加载失败，无法构建智能体")
+    subagents = await _step("子Agent加载", assemble_subagent())
+    if not subagents:
+        logger.error("子Agent加载失败，原因：子Agent为空,将使用主智能体运行")
+    logger.info("子Agent加载完成")
 
     # 创建子Agent中间件,此处使用了子智能体，需根据实际业务设置
     # 子Agent中间件通过 subagent 配置的 middleware 字段传入
@@ -166,7 +165,7 @@ async def create_main_agent(sandbox_config: dict = {},
         ]
     except Exception as e:
         logger.error(f"主Agent中间件创建失败，原因：{e}")
-        raise RuntimeError("因主Agent中间件创建失败，无法构建智能体")
+        raise RuntimeError("因主Agent中间件创建失败，无法构建智能体") from e
     logger.info("主Agent中间件创建完成")
 
     # 创建主Agent
@@ -189,7 +188,7 @@ async def create_main_agent(sandbox_config: dict = {},
         )
     except Exception as e:
         logger.error(f"主Agent创建失败，原因：{e}")
-        raise RuntimeError("因主Agent创建失败，无法构建智能体")
+        raise RuntimeError("因主Agent创建失败，无法构建智能体") from e
     logger.info("主Agent创建完成")
     return main_agent
 

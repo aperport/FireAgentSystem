@@ -13,7 +13,7 @@
 
 graph_query 同时被 fire-management-analyst 复用，限定用于故障影响链分析。
 
-当前已接入真实 GraphRAG（orchestrator.py / VectorQuery / GraphQuery），
+当前已接入真实 GraphRAG（orchestrator.py / VectorRetriever / GraphTraverser），
 不再使用 Mock 数据。
 """
 
@@ -26,7 +26,12 @@ from fastmcp import FastMCP
 # ponytail: 确保 graph_rag 模块可导入
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from graph_rag.orchestrator import GraphRAGOrchestrator, VectorQuery, GraphQuery
+# [修改] 不再导入已删除的 VectorQuery / GraphQuery，改为直接使用底层组件
+from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, _Neo4jDriver
+from graph_rag.entity_extractor import EntityExtractor
+from graph_rag.vector_retriever import VectorRetriever
+from graph_rag.graph_traverser import GraphTraverser
+from agent.llm_config import DeepSeek_LLM
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -96,8 +101,10 @@ def register_knowledge_tools(mcp: FastMCP):
         """
         logger.info("knowledge_search 调用: query=%s", query)
         try:
-            vq = VectorQuery(query=query)
-            result = await vq.vector_query()
+            # [修改] 原先使用 VectorQuery 类（已删除），现直接调用底层 VectorRetriever
+            retrieval_module = _BM25Index.get()
+            vector_retriever = VectorRetriever(retrieval_module=retrieval_module)
+            result = await vector_retriever.search(query=query)
             logger.info("knowledge_search 完成: %d 条结果", len(result))
             return {
                 "total": len(result),
@@ -122,8 +129,6 @@ def register_knowledge_tools(mcp: FastMCP):
     @mcp.tool(name="graph_query")
     async def graph_query(
         entity: str,
-        
-
     ) -> dict:
         """
         纯图遍历查询。适用于已知起点做深度遍历（追踪某法规所有引用/故障影响链分析）。
@@ -131,17 +136,18 @@ def register_knowledge_tools(mcp: FastMCP):
 
         Args:
             entity: 起始实体名称，如"EPS电源-01"、"ICU病房"
-            relation_types: 限定关系类型，如["依赖","安装于"]，为空则遍历所有关系
-            depth: 遍历深度，默认2
-            direction: 遍历方向，可选：outgoing(默认)/incoming/both
 
         Returns:
             图遍历结果，包含 paths 路径列表、entities 关联实体、total_paths
         """
         logger.info("graph_query 调用: entity=%s", entity)
         try:
-            gq = GraphQuery(query=entity)
-            result = await gq.graph_query()
+            # [修改] 原先使用 GraphQuery 类（已删除），现直接调用底层 EntityExtractor + GraphTraverser
+            entity_extractor = EntityExtractor(llm_client=DeepSeek_LLM, query=entity)
+            entity_result = await entity_extractor.main_pip()
+            graph_traverser = _Neo4jDriver.get()
+            graph_traverser.extract_result = entity_result
+            result = await graph_traverser.traverse()
             logger.info("graph_query 完成: %d 条路径", len(result))
             return {
                 "paths": result,

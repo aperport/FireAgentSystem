@@ -34,15 +34,5 @@ register_duty_tools(mcp)
 register_utility_tools(mcp)
 
 
-def main():
-    """启动 MCP Streamable HTTP 服务"""
-    mcp.run(
-        transport="streamable-http",
-        host=MCP_HOST,
-        port=MCP_PORT,
-        path=MCP_PATH,
-    )
-
-
-if __name__ == "__main__":
-    main()
+# [删除理由] main() + if __name__ == "__main__": 已删除。
+# MCP Server 通过 run.py --mode mcp-server 启动，此处的 main() 无调用方。
