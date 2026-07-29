@@ -15,7 +15,8 @@
       "Bash(pip list *)",
       "Bash(xargs wc -l)",
       "Bash(git add *)",
-      "Bash(git commit -m 'fix: update bug audit status, wrap sync DB calls with asyncio.to_thread *)"
+      "Bash(git commit -m 'fix: update bug audit status, wrap sync DB calls with asyncio.to_thread *)",
+      "Bash(npm update *)"
     ]
   }
 }

@@ -9,6 +9,11 @@
             "path": "src/agent/subagents",
             "envManager": "ms-python.python:venv",
             "packageManager": "ms-python.python:pip"
+        },
+        {
+            "path": "src/agent/backends/local",
+            "envManager": "ms-python.python:conda",
+            "packageManager": "ms-python.python:conda"
         }
     ],
     "python-envs.defaultEnvManager": "ms-python.python:conda",

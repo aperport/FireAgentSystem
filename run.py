@@ -26,9 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 def run_agent():
     """Agent 模式：CLI 交互对话"""
-    from langchain.messages import HumanMessage
     from langchain_core.runnables import RunnableConfig
-    from agent.main_agent import get_agent_async
     from api_view.servers import query_user
 
     thread_id = uuid.uuid4().hex
@@ -43,6 +41,8 @@ def run_agent():
     print(f"会话ID: {thread_id}\n")
 
     async def _chat():
+        # 闭包声明，仅仅读取不用nonlocal显示声明。
+        nonlocal user,config
         while True:
             user.query = input("请输入问题：")
             if user.query == "exit":
@@ -63,8 +63,9 @@ def run_agent():
 
 def run_mcp_server():
     """MCP Server 模式：启动 FastMCP 工具服务"""
-    from mcp_server.server_main import main
-    main()
+    from mcp_server.server_main import mcp
+    from mcp_server.server_config import MCP_HOST, MCP_PATH, MCP_PORT
+    mcp.run(transport="streamable-http", host=MCP_HOST, port=MCP_PORT, path=MCP_PATH)
 
 
 def run_api_server():
