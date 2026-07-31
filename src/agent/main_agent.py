@@ -71,7 +71,7 @@ async def _step(name: str, coro):
         raise RuntimeError(f"因{name}失败，无法构建智能体") from e
 
 
-async def create_main_agent(sandbox_config: dict = {},
+async def create_main_agent(sandbox_config: dict[str, object] = {},
         *,
         sandbox_id: str | None = None,
 ):
@@ -178,7 +178,7 @@ async def create_main_agent(sandbox_config: dict = {},
             memory=["/memories/"],                  # 用户记忆存储路径（偏好、历史等，由StoreBackend按user_id隔离），上传之后的路径
             tools=available_tools,                  # 工具，来源很多，可以是MCP工具（有三种传输方式），也可以是自定义工具
             subagents=subagents,                    # 子智能体，类型subagent类型，即字典，里面含有name、description、system_prompt、tool字段，存在校验；另一种是CompiledSubAgent，即langgraph的智能体组合。
-            middleware=main_mid,                    # 中间件。
+            middleware=main_mid,                    # 中间件。  # pyright: ignore[reportArgumentType]
             backend=compositeBackend,               # 后端：指定数据存储、文件系统、或者记忆（Memory）持久化的具体底层实现，存在几个默认实现，目前使用自定义OpenSandBox。
             store=STORE,                            # 长期记忆持久化，如用户偏好等。
             checkpointer=CHECKPOINT,                # 检查点，短期记忆，设置之后配合thread_id可实现连续会话
@@ -288,7 +288,7 @@ async def get_agent_async():
     return agent
 
 
-async def start_main_agent(query: str,configs: RunnableConfig):
+async def start_main_agent(query: str, configs: RunnableConfig) -> str:
     agent = await get_agent_async()
     result = await agent.ainvoke({"messages":[HumanMessage(content=query)]},config=configs)
     # 寻找最后一条AI回答
@@ -296,6 +296,11 @@ async def start_main_agent(query: str,configs: RunnableConfig):
     messages = result["messages"]
     for mes in reversed(messages):
         if isinstance(mes, AIMessage):
-           answer = mes.content
+           # AIMessage.content 类型为 str | list[str | dict]，需统一转为 str
+           raw = mes.content
+           if isinstance(raw, str):
+               answer = raw
+           else:
+               answer = "".join(part if isinstance(part, str) else str(part) for part in raw)
            break 
     return answer
