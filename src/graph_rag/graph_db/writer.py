@@ -28,20 +28,15 @@ from util_tools.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _get_neo4j_driver() -> Neo4jDrivers:
-    """懒加载 Neo4j 驱动。"""
-    s = get_settings()
-    return Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
-
-
 _N4JD: Neo4jDrivers | None = None
 
 
-def _shared_neo4j() -> Neo4jDrivers:
-    """进程级 Neo4j 驱动单例。"""
+def get_neo4j_driver() -> Neo4jDrivers:
+    """进程级 Neo4j 驱动单例（线程安全，懒加载）。"""
     global _N4JD
     if _N4JD is None:
-        _N4JD = _get_neo4j_driver()
+        s = get_settings()
+        _N4JD = Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
     return _N4JD
 
 
@@ -126,7 +121,7 @@ class Neo4jBatchWriter:
     """Neo4j 批量写入器 — UNWIND + MERGE 批量 upsert。"""
 
     def __init__(self, driver: Neo4jDrivers | None = None, batch_size: int = 100):
-        self.driver = driver or _shared_neo4j()
+        self.driver = driver or get_neo4j_driver()
         self.batch_size = batch_size
 
     async def write_nodes(

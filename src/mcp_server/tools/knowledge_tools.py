@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # [修改] 不再导入已删除的 VectorQuery / GraphQuery，改为直接使用底层组件
 from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, _Neo4jDriver, set_llm
-from graph_rag.entity_extractor import EntityExtractor
+from graph_rag.entity_extractor import EntityExtractor, _get_ner_pipeline
 from graph_rag.vector_retriever import VectorRetriever
 from graph_rag.graph_traverser import GraphTraverser
 from agent.llm_config import DeepSeek_LLM
@@ -36,8 +36,17 @@ from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Agent 层装配 LLM 到 GraphRAG 模块
 set_llm(DeepSeek_LLM)
+
+_ENTITY_EXTRACTOR: EntityExtractor | None = None
+
+
+def _get_entity_extractor() -> EntityExtractor:
+    """EntityExtractor 单例（NER 模型只加载一次）。"""
+    global _ENTITY_EXTRACTOR
+    if _ENTITY_EXTRACTOR is None:
+        _ENTITY_EXTRACTOR = EntityExtractor(llm_client=DeepSeek_LLM, query="")
+    return _ENTITY_EXTRACTOR
 
 
 def register_knowledge_tools(mcp: FastMCP):
@@ -145,9 +154,10 @@ def register_knowledge_tools(mcp: FastMCP):
         """
         logger.info("graph_query 调用: entity=%s", entity)
         try:
-            # [修改] 原先使用 GraphQuery 类（已删除），现直接调用底层 EntityExtractor + GraphTraverser
-            entity_extractor = EntityExtractor(llm_client=DeepSeek_LLM, query=entity)
-            entity_result = await entity_extractor.main_pip()
+            # [修改] 复用全局 EntityExtractor 单例，NER 模型只加载一次
+            extractor = _get_entity_extractor()
+            extractor.query = entity
+            entity_result = await extractor.main_pip()
             graph_traverser = _Neo4jDriver.get()
             graph_traverser.extract_result = entity_result
             result = await graph_traverser.traverse()

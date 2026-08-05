@@ -41,6 +41,22 @@ from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
 
 logger = get_logger(__name__)
 
+_NER_PIPELINE = None
+_NER_LOCK = asyncio.Lock() if hasattr(asyncio, 'Lock') else None
+
+
+def _get_ner_pipeline(model_name: str = "Davlan/bert-base-multilingual-cased-ner-hrl"):
+    """获取 NER pipeline 全局单例（懒加载，模型只加载一次 ~400MB）。"""
+    global _NER_PIPELINE
+    if _NER_PIPELINE is None:
+        logger.info("首次加载 NER 模型: %s", model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForTokenClassification.from_pretrained(model_name)
+        _NER_PIPELINE = pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")
+        logger.info("NER 模型加载完成")
+    return _NER_PIPELINE
+
+
 # 定义LLM输出结构
 class Entity(BaseModel):
     name: str
@@ -78,13 +94,11 @@ class EntityExtractor:
         self.driver = None
         self.entity_extract_model = entity_extract_model
 
-        # 图结构缓存
         self.entity_cache = {}
         self.relation_cache = {}
         self.subgraph_cache = {}
 
-        # 模型初始化
-        self.initialize_model()
+        self.pipe = _get_ner_pipeline(entity_extract_model)
 
 
     
@@ -184,15 +198,6 @@ class EntityExtractor:
 
         except Exception as e:
             logger.error("LLM 实体抽取失败:%s, 开始使用NER抽取关键信息", str(e))
-    
-    def initialize_model(self):
-        """
-        初始化小模型
-        """
-        # 加载分词器和模型，并组装成管道
-        self.tokenizer = AutoTokenizer.from_pretrained(self.entity_extract_model)
-        self.model = AutoModelForTokenClassification.from_pretrained(self.entity_extract_model)
-        self.pipe = pipeline("ner", model=self.model, tokenizer=self.tokenizer, aggregation_strategy="simple")
 
     async def predict(self):
         """
