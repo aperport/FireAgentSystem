@@ -23,6 +23,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 from neo4j import AsyncDriver
 
+from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers
 from graph_rag.graph_db.schema import REL_TYPES
@@ -93,8 +94,10 @@ class GraphVectorTraverser:
         self.score_threshold = score_threshold
 
         if embedder is None:
-            model_name = os.getenv("EMBEDDING_MODEL_NAME_TEXT", "BAAI/bge-small-zh-v1.5")
-            self.embedder = HuggingFaceEmbeddings(model_name=model_name)
+            s = get_settings()
+            self.embedder = HuggingFaceEmbeddings(model_name=s.embedding_model_name,
+                                                   model_kwargs={"device": s.embedding_device},
+                                                   encode_kwargs={"normalize_embeddings": True})
         else:
             self.embedder = embedder
 

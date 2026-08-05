@@ -18,12 +18,10 @@ MCP 工具客户端 — 连接 MCP Server 获取所有可用工具。
 """
 import os
 
-from dotenv import load_dotenv
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from util_tools.logger import get_logger
 from langchain.tools import BaseTool
 
-load_dotenv()
 logger = get_logger(__name__)
 
 # MCP Server 连接配置（Streamable HTTP）

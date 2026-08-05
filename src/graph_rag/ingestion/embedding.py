@@ -9,20 +9,15 @@ import asyncio
 from typing import Optional
 
 from langchain_core.embeddings import Embeddings
+from graph_rag.config import get_settings
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ─── 环境变量（模块级读取，与 db_operator.py 模式一致）───
-_EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-zh-v1.5")
-_EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cuda")
-
-
-# ===================== 工厂函数 =====================
 
 def create_embedder(
-    model_name: str = _EMBEDDING_MODEL_NAME,
-    device: str = _EMBEDDING_DEVICE,
+    model_name: str | None = None,
+    device: str | None = None,
 ) -> Embeddings:
     """创建 HuggingFace Embedding 实例。
 
@@ -30,28 +25,21 @@ def create_embedder(
     保证入库向量和检索向量在同一个向量空间中。
 
     Args:
-        model_name: HuggingFace 模型名，默认 BAAI/bge-small-zh-v1.5（512维）
-        device: 推理设备，"cuda"（GPU）或 "cpu"
+        model_name: HuggingFace 模型名，默认从 config 读取
+        device: 推理设备，默认从 config 读取
 
     Returns:
         实现 langchain_core.embeddings.Embeddings ABC 的 HuggingFaceEmbeddings 实例
-
-    Example:
-        # 使用默认配置（bge-small-zh-v1.5 + cuda）
-        embedder = create_embedder()
-
-        # 使用 CPU（无 GPU 环境时）
-        embedder = create_embedder(device="cpu")
-
-        # 使用其他模型
-        embedder = create_embedder(model_name="BAAI/bge-large-zh-v1.5")
     """
     from langchain_huggingface import HuggingFaceEmbeddings
 
-    logger.info(f"创建 HuggingFace Embedding: model={model_name}, device={device}")
+    s = get_settings()
+    _model = model_name or s.embedding_model_name
+    _device = device or s.embedding_device
+    logger.info(f"创建 HuggingFace Embedding: model={_model}, device={_device}")
     return HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": device},
+        model_name=_model,
+        model_kwargs={"device": _device},
         encode_kwargs={"normalize_embeddings": True},
     )
 

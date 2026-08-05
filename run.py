@@ -17,6 +17,10 @@ import asyncio
 import sys
 import os
 import uuid
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from agent.main_agent import start_main_agent
 
 # ponytail: 确保 src/ 在搜索路径中

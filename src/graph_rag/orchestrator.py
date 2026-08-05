@@ -16,10 +16,10 @@ GraphRAG 查询编排器 — 整个 GraphRAG Pipeline 的核心入口。
 import sys, os
 import threading
 
-from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-load_dotenv()
+
 from agent.llm_config import DeepSeek_LLM
+from graph_rag.config import get_settings
 from graph_rag.context_fusion import ContextFusionModule
 from graph_rag.entity_extractor import EntityExtractor
 from graph_rag.graph_traverser import GraphTraverser
@@ -41,22 +41,22 @@ class _BM25Index:
     数据入库后调用 rebuild() 重建。
     """
     _instance: HybridRetrievalModule | None = None
-    _lock = threading.Lock()  # [修改] 布尔锁改为 threading.Lock，避免竞态条件
+    _lock = threading.Lock()
 
     @classmethod
     def get(cls) -> HybridRetrievalModule:
         """获取 BM25 索引实例（懒加载）。"""
         if cls._instance is None:
             with cls._lock:
-                # 双重检查：获取锁后再确认一次
                 if cls._instance is not None:
                     return cls._instance
+                s = get_settings()
                 pg = get_pg_instance(
-                    host=os.getenv("PG_HOST", "localhost"),
-                    user=os.getenv("PG_USER", "postgres"),
-                    password=os.getenv("PG_PASSWORD", "1"),
-                    dbname=os.getenv("PG_DBNAME", "fire_rag"),
-                    port=int(os.getenv("PG_PORT", "5432")),
+                    host=s.pg_host,
+                    user=s.pg_user,
+                    password=s.pg_password,
+                    dbname=s.pg_dbname,
+                    port=s.pg_port,
                 )
                 cls._instance = HybridRetrievalModule(
                     PGV_module=pg,

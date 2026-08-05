@@ -41,6 +41,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 import psycopg2
 import psycopg2.extras
 
+from graph_rag.config import get_settings
+
 logger = get_logger(__name__)
 
 
@@ -156,14 +158,15 @@ class PGVectorManager:
         pg.init_tables()  # 首次部署时调用
     """
 
-    def __init__(self, host: str, user: str, password: str, dbname: str, port: int, model_name: str = "BAAI/bge-small-zh-v1.5"):
+    def __init__(self, host: str, user: str, password: str, dbname: str, port: int, model_name: str | None = None):
         self.host = host
         self.user = user
         self.password = password
         self.dbname = dbname
         self.port = port
         self.conn: psycopg2.extensions.connection | None = None
-        self.model_name = model_name
+        s = get_settings()
+        self.model_name = model_name or s.embedding_model_name
         self.embeddings = None
         self._connect()
         self._set_up_embeddings()
@@ -190,9 +193,10 @@ class PGVectorManager:
     
     def _set_up_embeddings(self):
         """设置 embeddings 模型"""
+        s = get_settings()
         logger.info(f"设置 embeddings 模型: {self.model_name}")
         self.embeddings = HuggingFaceEmbeddings(model_name=self.model_name,
-                                                model_kwargs={"device": "cpu"},
+                                                model_kwargs={"device": s.embedding_device},
                                                 encode_kwargs={"normalize_embeddings": True})
         logger.info("embeddings 模型设置完成")
 
@@ -228,7 +232,7 @@ class PGVectorManager:
             logger.info("PostgreSQL 连接已关闭")
 
 
-def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int, model_name: str = "BAAI/bge-small-zh-v1.5") -> PGVectorManager:
+def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int, model_name: str | None = None) -> PGVectorManager:
     """获取 PGVectorManager 全局单例（懒加载）。
 
     首次调用时创建实例，后续调用返回同一实例。

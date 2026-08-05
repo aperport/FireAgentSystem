@@ -25,22 +25,12 @@
 """
 
 import os
-from dotenv import load_dotenv
 from langchain_core.documents import Document
+from graph_rag.config import get_settings
 from graph_rag.vector_db.collections import get_pg_instance
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-
-load_dotenv()
-
-
-# PG 连接参数从环境变量读取，不再硬编码
-_PG_HOST = os.getenv("PG_HOST", "localhost")
-_PG_PORT = int(os.getenv("PG_PORT", "5432"))
-_PG_USER = os.getenv("PG_USER", "postgres")
-_PG_PASSWORD = os.getenv("PG_PASSWORD", "NewPass123!")
-_PG_DBNAME = os.getenv("PG_DBNAME", "fire_rag")
 
 
 class DBOperator:
@@ -53,18 +43,19 @@ class DBOperator:
     def pg(self) -> PGVectorManager:
         """延迟初始化 PGVectorManager，首次访问时创建连接"""
         if self._pg is None:
-            if not _PG_PASSWORD:
+            s = get_settings()
+            if not s.pg_password:
                 raise ValueError(
                     "PG_PASSWORD 环境变量未设置，请在 .env 中配置 PostgreSQL 密码"
                 )
             self._pg = get_pg_instance(
-                host=_PG_HOST,
-                user=_PG_USER,
-                password=_PG_PASSWORD,
-                dbname=_PG_DBNAME,
-                port=_PG_PORT,
+                host=s.pg_host,
+                user=s.pg_user,
+                password=s.pg_password,
+                dbname=s.pg_dbname,
+                port=s.pg_port,
             )
-            logger.info(f"PGVectorManager 已初始化: {_PG_HOST}:{_PG_PORT}/{_PG_DBNAME}")
+            logger.info(f"PGVectorManager 已初始化: {s.pg_host}:{s.pg_port}/{s.pg_dbname}")
         return self._pg
 
     # [合并理由] insert_chunks 和 insert_picture 逻辑几乎完全相同，

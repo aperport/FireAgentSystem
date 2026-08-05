@@ -14,11 +14,7 @@ import os
 import dataclasses
 from typing import Optional
 
-from dotenv import load_dotenv
-
-# ponytail: writer.py 在 import 时就读环境变量创建连接，必须先加载 .env
-load_dotenv()
-
+from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, Relation
 from graph_rag.graph_db.connection import Neo4jDrivers
 from graph_rag.graph_db.schema import (
@@ -31,12 +27,22 @@ from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ─── Neo4j 连接（模块级）───
-N4JD = Neo4jDrivers(
-    os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-    os.getenv("NEO4J_USER", "neo4j"),
-    os.getenv("NEO4J_PASSWORD", "neo4j"),
-)
+
+def _get_neo4j_driver() -> Neo4jDrivers:
+    """懒加载 Neo4j 驱动。"""
+    s = get_settings()
+    return Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
+
+
+_N4JD: Neo4jDrivers | None = None
+
+
+def _shared_neo4j() -> Neo4jDrivers:
+    """进程级 Neo4j 驱动单例。"""
+    global _N4JD
+    if _N4JD is None:
+        _N4JD = _get_neo4j_driver()
+    return _N4JD
 
 
 # ===================== Cypher 模板自动生成 =====================
@@ -119,8 +125,8 @@ MERGE_REL_CYPHER = _build_merge_rel_cypher()
 class Neo4jBatchWriter:
     """Neo4j 批量写入器 — UNWIND + MERGE 批量 upsert。"""
 
-    def __init__(self, driver: Neo4jDrivers = N4JD, batch_size: int = 100):
-        self.driver = driver
+    def __init__(self, driver: Neo4jDrivers | None = None, batch_size: int = 100):
+        self.driver = driver or _shared_neo4j()
         self.batch_size = batch_size
 
     async def write_nodes(

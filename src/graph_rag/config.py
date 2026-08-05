@@ -1,44 +1,71 @@
 """
-GraphRAG 配置模块 — 集中管理 GraphRAG 相关的所有配置项。
+GraphRAG 配置模块 — 集中管理所有配置项，一处定义全局读取。
 
-⚠️ 当前状态：空骨架，未实现。各模块自行读取环境变量或硬编码连接参数。
+使用 pydantic-settings BaseSettings，自动从 .env 读取环境变量。
+各模块统一通过 get_settings() 获取配置，不再各自 os.getenv()。
 
-待实现配置项：
-    Neo4j 连接：
-        - NEO4J_URI          bolt://localhost:7687
-        - NEO4J_USER         neo4j
-        - NEO4J_PASSWORD     （从 .env 读取）
-        - NEO4J_DATABASE     neo4j
-
-    PostgreSQL + pgvector 连接：
-        - PG_HOST            localhost
-        - PG_PORT            5432
-        - PG_USER            postgres
-        - PG_PASSWORD        （从 .env 读取）
-        - PG_DBNAME          fire_rag
-
-    Embedding 模型：
-        - EMBEDDING_MODEL    BAAI/bge-small-zh-v1.5（当前硬编码在 collections.py）
-        - EMBEDDING_DEVICE   cuda（当前硬编码）
-
-    DashScope API（ingestion/embedding.py 待实现时需要）：
-        - DASHSCOPE_API_KEY
-        - TEXT_EMBEDDING_MODEL    text-embedding-v4
-        - MULTIMODAL_EMBEDDING_MODEL  multimodal-embedding-v1
-
-    DotsOCR（ingestion/doc_parser/pdf_parser.py 待实现时需要）：
-        - DOTS_OCR_URL
-
-    检索参数：
-        - DEFAULT_TOP_K          默认返回条数（当前各模块默认 5）
-        - DEFAULT_GRAPH_DEPTH    图遍历默认深度
-        - RAGAS_THRESHOLD        RAGAS 评估通过阈值（当前硬编码 0.7）
-        - MIN_SIMILARITY         向量检索最低相似度（当前硬编码 0.3）
-        - LLM_TIMEOUT            LLM 调用超时秒数（当前硬编码 2.0）
-
-实现建议：
-    1. 使用 pydantic-settings 的 BaseSettings，自动从 .env 读取
-    2. 提供 get_settings() 单例，各模块统一从此处获取配置
-    3. 消除 orchestrator.py 中硬编码的 PG 连接参数
-    4. 消除 graph_traverser.py 中散落的 os.getenv() 调用
+用法：
+    from graph_rag.config import get_settings
+    s = get_settings()
+    print(s.pg_host, s.neo4j_uri, s.embedding_model_name)
 """
+
+import threading
+from pydantic_settings import BaseSettings
+
+
+class GraphRAGSettings(BaseSettings):
+    """GraphRAG 全局配置，从 .env 自动读取，带合理默认值。"""
+
+    # ── PostgreSQL + pgvector ──
+    pg_host: str = "localhost"
+    pg_port: int = 5432
+    pg_user: str = "postgres"
+    pg_password: str = ""
+    pg_dbname: str = "fire_rag"
+
+    # ── Neo4j ──
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = "neo4j"
+    neo4j_database: str = "neo4j"
+
+    # ── Embedding ──
+    embedding_model_name: str = "BAAI/bge-small-zh-v1.5"
+    embedding_device: str = "cpu"
+
+    # ── 检索参数 ──
+    default_top_k: int = 5
+    default_graph_depth: int = 2
+    min_similarity: float = 0.3
+    llm_timeout: float = 2.0
+
+    # ── 评估 ──
+    ragas_threshold: float = 0.7
+
+    # ── MCP Server ──
+    java_api_base_url: str = "http://127.0.0.1:8080"
+    mcp_host: str = "127.0.0.1"
+    mcp_port: int = 8000
+    mcp_path: str = "/mcp"
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
+
+
+_instance: GraphRAGSettings | None = None
+_lock = threading.Lock()
+
+
+def get_settings() -> GraphRAGSettings:
+    """获取全局配置单例（线程安全，懒加载）。"""
+    global _instance
+    if _instance is None:
+        with _lock:
+            if _instance is not None:
+                return _instance
+            _instance = GraphRAGSettings()
+    return _instance

@@ -57,13 +57,15 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.llm_config import DeepSeek_LLM
+from graph_rag.config import get_settings
 from util_tools.logger import get_logger
 
 
 logger = get_logger(__name__)
 class RAGASEvaluator:
     def __init__(self,json_file_path: str) -> None:
-        self.model_name : str = "BAAI/bge-small-zh-v1.5"
+        s = get_settings()
+        self.model_name : str = s.embedding_model_name
         self.embeddings: HuggingFaceEmbeddings|None = None
         self.llm : ChatOpenAI = DeepSeek_LLM
         self.json_file_path : str = json_file_path
@@ -88,8 +90,9 @@ class RAGASEvaluator:
         运行评估
         """
         logger.info("开始评估")
+        s = get_settings()
         self.embeddings = HuggingFaceEmbeddings(model_name=self.model_name,
-                                        model_kwargs={"device": "cuda"},
+                                        model_kwargs={"device": s.embedding_device},
                                         encode_kwargs={"normalize_embeddings": True})
         # 1. 加载数据
         eval_data = self.load_evaluation_data()

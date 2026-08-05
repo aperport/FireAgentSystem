@@ -44,17 +44,30 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.llm_config import DeepSeek_LLM
+from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers
 from graph_rag.graph_db.queries import GraphQueries
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-user = os.getenv("NEO4J_USER", "neo4j")
-password = os.getenv("NEO4J_PASSWORD", "neo4j")
 
-N4JD = Neo4jDrivers(uri, user, password)
+
+def _get_neo4j_driver() -> Neo4jDrivers:
+    """懒加载 Neo4j 驱动（替代模块级 N4JD 实例化）。"""
+    s = get_settings()
+    return Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
+
+
+_N4JD: Neo4jDrivers | None = None
+
+
+def _shared_neo4j() -> Neo4jDrivers:
+    """进程级 Neo4j 驱动单例。"""
+    global _N4JD
+    if _N4JD is None:
+        _N4JD = _get_neo4j_driver()
+    return _N4JD
 class GraphTraverser:
     """
         遍历图谱，获取关联上下文,根据提取的关键词，采取逐层降级检索的方式
@@ -64,8 +77,8 @@ class GraphTraverser:
         4. 若实在未找到，那么返回空，并提示未找到数据
         5. 中间查询到type后，回填如类型，可能后续有用。
     """
-    def __init__(self,extract_result:ExtractResult,Neo4jDriver:Neo4jDrivers=N4JD):
-        self.Neo4jDriver = Neo4jDriver
+    def __init__(self,extract_result:ExtractResult,Neo4jDriver:Neo4jDrivers|None=None):
+        self.Neo4jDriver = Neo4jDriver or _shared_neo4j()
         self.extract_result = extract_result
 
     async def traverse(self):
