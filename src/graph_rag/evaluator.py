@@ -52,22 +52,20 @@ from ragas.metrics import (
 )
 
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from agent.llm_config import DeepSeek_LLM
 from graph_rag.config import get_settings
 from util_tools.logger import get_logger
 
 
 logger = get_logger(__name__)
 class RAGASEvaluator:
-    def __init__(self,json_file_path: str) -> None:
+    def __init__(self,json_file_path: str, llm: BaseChatModel | None = None) -> None:
         s = get_settings()
         self.model_name : str = s.embedding_model_name
         self.embeddings: HuggingFaceEmbeddings|None = None
-        self.llm : ChatOpenAI = DeepSeek_LLM
+        self.llm : BaseChatModel = llm or ChatOpenAI(model="deepseek-chat")
         self.json_file_path : str = json_file_path
 
     def load_evaluation_data(self):

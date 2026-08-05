@@ -18,7 +18,7 @@ import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from agent.llm_config import DeepSeek_LLM
+from langchain_core.language_models import BaseChatModel
 from graph_rag.config import get_settings
 from graph_rag.context_fusion import ContextFusionModule
 from graph_rag.entity_extractor import EntityExtractor
@@ -33,6 +33,22 @@ logger = get_logger(__name__)
 
 
 # ===================== 全局单例：BM25 索引 =====================
+
+_LLM: BaseChatModel | None = None
+
+
+def _get_llm() -> BaseChatModel:
+    """获取注入的 LLM 实例，未注入则报错。"""
+    if _LLM is None:
+        raise RuntimeError("未注入 LLM，请先调用 set_llm() 或在构造时传入 llm 参数")
+    return _LLM
+
+
+def set_llm(llm: BaseChatModel) -> None:
+    """设置全局 LLM 实例（由 Agent 层在启动时调用）。"""
+    global _LLM
+    _LLM = llm
+
 
 class _BM25Index:
     """BM25 索引全局单例（进程级缓存）。
@@ -60,7 +76,7 @@ class _BM25Index:
                 )
                 cls._instance = HybridRetrievalModule(
                     PGV_module=pg,
-                    llm_client=DeepSeek_LLM,
+                    llm_client=_get_llm(),
                 )
                 cls._instance.rebuild_bm25_index()
                 logger.info("BM25 索引全局单例构建完成")
@@ -82,21 +98,23 @@ class _Neo4jDriver:
     _instance: GraphTraverser | None = None
 
     @classmethod
-    def get(cls) -> GraphTraverser:
+    def get(cls, llm: BaseChatModel | None = None) -> GraphTraverser:
         if cls._instance is None:
-            cls._instance = GraphTraverser(extract_result=None)
+            _llm = llm or _get_llm()
+            cls._instance = GraphTraverser(extract_result=None, llm=_llm)
             logger.info("Neo4j GraphTraverser 全局单例构建完成")
         return cls._instance
 
 
 class GraphRAGOrchestrator:
-    def __init__(self, query: str):
+    def __init__(self, query: str, llm: BaseChatModel | None = None):
         self.query = query
+        self.llm = llm or _get_llm()
         self.retrieval_module = _BM25Index.get()
 
     async def rag_search(self,top_k=5):
         # 1. 对问题进行实体抽取
-        entityExtractor = EntityExtractor(llm_client=DeepSeek_LLM,query=self.query)
+        entityExtractor = EntityExtractor(llm_client=self.llm,query=self.query)
         entity_result = await entityExtractor.main_pip()
 
         # 2. 对实体进行向量检索与图遍历
@@ -106,7 +124,7 @@ class GraphRAGOrchestrator:
         vector_result = await vectorRetriever.search(query=self.query,top_k=top_k)
 
         # 2.2 图遍历
-        graph_traverser = _Neo4jDriver.get()
+        graph_traverser = _Neo4jDriver.get(llm=self.llm)
         graph_traverser.extract_result = entity_result
         graph_result = await graph_traverser.traverse()
 

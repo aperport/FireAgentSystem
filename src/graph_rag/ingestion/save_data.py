@@ -7,6 +7,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
 from graph_rag.ingestion.doc_parser import ParsedDocument
@@ -38,7 +39,7 @@ class IngestResult:
 
 async def ingest_markdown(
     file_path: str,
-    llm_client: Optional[ChatOpenAI] = None,
+    llm_client: Optional[BaseChatModel] = None,
     writer: Optional[Neo4jBatchWriter] = None,
 ) -> IngestResult:
     """将单个 Markdown 文件完整入库（PG 向量 + Neo4j 图谱）。
@@ -47,13 +48,11 @@ async def ingest_markdown(
 
     Args:
         file_path: Markdown 文件路径
-        llm_client: LLM 客户端，None 则用 DeepSeek_FAST
+        llm_client: LLM 客户端，必须由调用方注入
         writer: Neo4j 批量写入器，None 则自动创建
     """
-    # ponytail: 懒加载 LLM，未传则用项目已有的快速模型
     if llm_client is None:
-        from agent.llm_config import DeepSeek_FAST
-        llm_client = DeepSeek_FAST
+        raise ValueError("llm_client 不能为空，请由调用方注入 LLM 实例")
 
     try:
         # 1. 解析
@@ -105,7 +104,7 @@ async def ingest_markdown(
 
 async def ingest_directory(
     dir_path: str,
-    llm_client: Optional[ChatOpenAI] = None,
+    llm_client: Optional[BaseChatModel] = None,
 ) -> List[IngestResult]:
     """将目录下所有 Markdown 文件批量入库。
 
@@ -113,11 +112,10 @@ async def ingest_directory(
 
     Args:
         dir_path: 目录路径
-        llm_client: LLM 客户端，None 则用 DeepSeek_FAST
+        llm_client: LLM 客户端，必须由调用方注入
     """
     if llm_client is None:
-        from agent.llm_config import DeepSeek_FAST
-        llm_client = DeepSeek_FAST
+        raise ValueError("llm_client 不能为空，请由调用方注入 LLM 实例")
 
     writer = Neo4jBatchWriter()
     parsed_docs = MdParser().parse_directory(dir_path)

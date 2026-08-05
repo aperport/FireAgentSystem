@@ -27,7 +27,7 @@ from fastmcp import FastMCP
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # [修改] 不再导入已删除的 VectorQuery / GraphQuery，改为直接使用底层组件
-from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, _Neo4jDriver
+from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, _Neo4jDriver, set_llm
 from graph_rag.entity_extractor import EntityExtractor
 from graph_rag.vector_retriever import VectorRetriever
 from graph_rag.graph_traverser import GraphTraverser
@@ -35,6 +35,9 @@ from agent.llm_config import DeepSeek_LLM
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Agent 层装配 LLM 到 GraphRAG 模块
+set_llm(DeepSeek_LLM)
 
 
 def register_knowledge_tools(mcp: FastMCP):

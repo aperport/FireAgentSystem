@@ -39,11 +39,11 @@
 
 from typing import LiteralString
 
+from langchain_core.language_models import BaseChatModel
 from neo4j import AsyncDriver
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from agent.llm_config import DeepSeek_LLM
 from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers
@@ -77,9 +77,10 @@ class GraphTraverser:
         4. 若实在未找到，那么返回空，并提示未找到数据
         5. 中间查询到type后，回填如类型，可能后续有用。
     """
-    def __init__(self,extract_result:ExtractResult,Neo4jDriver:Neo4jDrivers|None=None):
+    def __init__(self,extract_result:ExtractResult,Neo4jDriver:Neo4jDrivers|None=None,llm:BaseChatModel|None=None):
         self.Neo4jDriver = Neo4jDriver or _shared_neo4j()
         self.extract_result = extract_result
+        self.llm = llm
 
     async def traverse(self):
       a_driver = await self.Neo4jDriver._get_async_driver()
@@ -192,7 +193,10 @@ class GraphTraverser:
         return:
             result                              图遍历结果
         """
-        llm = GraphQueries(DeepSeek_LLM)
+        if self.llm is None:
+            logger.warning("未注入 LLM，无法执行 LLM 生成查询")
+            return []
+        llm = GraphQueries(self.llm)
         result = await llm.query_llm(entity)
         if not result:
             logger.info("LLM未正常生成查询语句，无法进行图遍历")
