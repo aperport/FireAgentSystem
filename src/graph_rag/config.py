@@ -15,7 +15,10 @@ from pydantic_settings import BaseSettings
 
 
 class GraphRAGSettings(BaseSettings):
-    """GraphRAG 全局配置，从 .env 自动读取，带合理默认值。"""
+    """GraphRAG 全局配置，从 .env 自动读取，带合理默认值。
+       BaseSettings 会自动将环境变量转换为 Python 类型。需要注意的是，BaseSettings 不会自动转换 bool 类型，需要手动转换。
+       model_config写了文件地址
+    """
 
     # ── PostgreSQL + pgvector ──
     pg_host: str = "localhost"

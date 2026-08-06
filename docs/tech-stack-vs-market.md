@@ -77,21 +77,23 @@
 
 | 能力 | 当前状态 | 建议补强 |
 |------|---------|---------|
-| **Multi-Agent** | 2 个子 Agent，路由模式单一 | 加 1 个 Planner Agent 做任务拆解，展示 Supervisor-Worker 模式 |
-| **记忆管理** | InMemoryStore，重启丢失 | 实现 PostgresStore 或 Redis 持久化，展示长短期记忆设计 |
-| **Prompt Engineering** | 硬编码在代码中 | 抽取为 Jinja2 模板，加 DSPy 自动优化（加分项） |
-| **Agent 评估** | RAGAS 实现但未集成 | 集成到编排器，加自定义 Eval（工具调用准确率、幻觉率） |
-| **可观测性** | loguru 日志 | 接 LangSmith Tracing，或 OpenTelemetry |
+| **Multi-Agent** | 2 个子 Agent，路由模式单一 | 加 1 个 Planner Agent 做任务拆解，展示 Supervisor-Worker 模式 |   5
+| **记忆管理** | InMemoryStore，重启丢失 | 实现 PostgresStore 或 Redis 持久化，展示长短期记忆设计 |                已修复，使用PostgreSQL 
+| **Prompt Engineering** | 硬编码在代码中 | 抽取为 Jinja2 模板，加 DSPy 自动优化（加分项） |                        不太适配DeepAgents这种高度集成的框架。
+| **Agent 评估** | RAGAS 实现但未集成 | 集成到编排器，加自定义 Eval（工具调用准确率、幻觉率） |                      3
+| **可观测性** | loguru 日志 | 接 LangSmith Tracing，或 OpenTelemetry |                                          4
 | **多模型调度** | CompositeBackend 简单分流 | 加成本统计、降级容错、大小模型分级调用 |
+| **PDF转MARKDOWN** |新数据入库方式 | 拓展入库方式 |                                                              2
+
 
 ### ❌ 缺失的关键项（必须补）
 
 | # | 缺失项 | 优先级 | 难度 | 建议 |
 |---|--------|--------|------|------|
-| 1 | **Docker 容器化** | P0 | 低 | 写 Dockerfile + docker-compose.yml（PG + Neo4j + Agent） |
+| 1 | **Docker 容器化** | P0 | 低 | 写 Dockerfile + docker-compose.yml（PG + Neo4j + Agent） |                  编写完API之后尝试
 | 2 | **安全护栏** | P0 | 中 | 实现 Prompt 注入检测 + 输出过滤，可用 NeMo Guardrails 或自写 |
 | 3 | **CI/CD** | P1 | 低 | GitHub Actions：lint + test + build 镜像 |
-| 4 | **Reranker 重排** | P1 | 中 | 加 bge-reranker 或 Cohere Rerank，RRF 粗排后精排 |
+| 4 | **Reranker 重排** | P1 | 中 | 加 bge-reranker 或 Cohere Rerank，RRF 粗排后精排 |                          思考方案
 | 5 | **云部署** | P1 | 中 | Docker 推到云上（AWS ECS / 阿里云），至少有一套部署文档 |
 | 6 | **Redis 缓存** | P2 | 低 | 相似问题缓存、Embedding 缓存、会话状态缓存 |
 
@@ -102,7 +104,7 @@
 | 1 | **模型微调**（LoRA/SFT） | 用消防领域数据微调小模型，降低推理成本 |
 | 2 | **前端**（React/Vue） | 加一个简单的对话 UI，展示全栈能力 |
 | 3 | **Kubernetes** | 生产级编排，很多高级岗位要求 |
-| 4 | **DSPy 自动优化 Prompt** | 2026 年新兴技术，简历上很亮眼 |
+| 4 | **DSPy 自动优化 Prompt** | 2026 年新兴技术，简历上很亮眼 |                                              需要研究
 | 5 | **开源贡献** | 给 LangChain/LangGraph 提 PR，或把自己的项目开源 |
 | 6 | **技术博客** | 写 2-3 篇 Agent 实战文章，展示思考深度 |
 
