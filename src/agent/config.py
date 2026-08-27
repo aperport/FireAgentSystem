@@ -43,7 +43,6 @@ SCOPE_MAP = {
 
 SUMMARY_MODEL: BaseChatModel = DeepSeek_LLM
 
-STORE = InMemoryStore()
 
 # ── Store Checkpoint（懒加载，避免 import 时连接数据库）──
 _STORE: PostgresStore 

@@ -29,3 +29,15 @@ PDF 解析模块 — 将 PDF 文件解析为 Markdown + 提取嵌入图片。
     - PyMuPDF / pdfplumber（文字型 PDF 文本提取）
     - ParsedDocument 数据类（from . import ParsedDocument）
 """
+import pdf_inspector
+from markitdown import MarkItDown
+
+
+class WordPdfTransformer:
+    def __init__(self):
+        self.md_parser = MarkItDown()
+
+
+class ScanPdfTransformer:
+    def __init__(self):
+        self.md_parser = MarkItDown()
