@@ -39,14 +39,13 @@ Markdown 直接读取模块 — 读取 Markdown 文件并做标准化处理。
     - header_chain 使用相对路径，避免暴露绝对路径
     - 增加 frontmatter（YAML 头部）解析支持
 """
-
-import re
 import hashlib
+import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from util_tools.logger import get_logger
-from . import ParsedDocument
 
+from util_tools.logger import get_logger
+
+from . import ParsedDocument
 
 logger = get_logger(__name__)
 
@@ -71,7 +70,7 @@ class MetadataEnhancer:
 class MdParser:
     """Markdown 文件解析器 — 读取、标准化、提取图片、构建元数据。"""
 
-    def __init__(self, enhancers: Optional[List[MetadataEnhancer]] = None):
+    def __init__(self, enhancers: list[MetadataEnhancer]|None =None):
         self.enhancers = enhancers or []
 
     def parse(self, file_path: str) -> ParsedDocument:
@@ -107,7 +106,7 @@ class MdParser:
         logger.info(f"解析完成: {path.name}, 图片 {len(images)} 张")
         return parsed_doc
 
-    def parse_directory(self, dir_path: str) -> List[ParsedDocument]:
+    def parse_directory(self, dir_path: str) -> list[ParsedDocument]:
         """递归解析目录下所有 Markdown 文件。"""
         results = []
         dir_path_obj = Path(dir_path)
@@ -170,7 +169,7 @@ class MdParser:
 
     # ===================== 图片提取 =====================
 
-    def _extract_images(self, text: str) -> List[Dict[str, str]]:
+    def _extract_images(self, text: str) -> list[dict[str, str]]:
         """提取 Markdown 中的图片引用。
 
         Returns:
@@ -185,7 +184,7 @@ class MdParser:
 
     # ===================== 元数据构建 =====================
 
-    def _build_base_metadata(self, path: Path, text: str) -> Dict[str, Any]:
+    def _build_base_metadata(self, path: Path, text: str) -> dict[str, any]:
         """构建基础元数据 — 确定性层，零成本。
 
         包含字段：
@@ -200,7 +199,7 @@ class MdParser:
             - category: 文档分类（从路径目录推断）
         """
         # 文件基本信息
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, any] = {
             "source": str(path),
             "filename": path.name,
             "suffix": path.suffix.lower(),

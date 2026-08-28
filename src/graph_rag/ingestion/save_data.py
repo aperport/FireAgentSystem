@@ -1,21 +1,20 @@
 import sys
 from pathlib import Path
+
 # ponytail: 测试脚本，手动把 src/ 加入搜索路径
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-import asyncio
-from dataclasses import dataclass, field
-from typing import List, Optional
+
+from dataclasses import dataclass
+from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
-from langchain_openai import ChatOpenAI
 
-from graph_rag.ingestion.doc_parser import ParsedDocument
-from graph_rag.ingestion.doc_parser.md_parser import MdParser
-from graph_rag.ingestion.splitter import split
-from graph_rag.ingestion.entity_relation_extractor import extract_and_write_document
-from graph_rag.vector_db.db_operator import DBOperator
 from graph_rag.graph_db.writer import Neo4jBatchWriter
+from graph_rag.ingestion.doc_parser.md_parser import MdParser
+from graph_rag.ingestion.entity_relation_extractor import extract_and_write_document
+from graph_rag.ingestion.splitter import split
+from graph_rag.vector_db.db_operator import DBOperator
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -105,7 +104,7 @@ async def ingest_markdown(
 async def ingest_directory(
     dir_path: str,
     llm_client: Optional[BaseChatModel] = None,
-) -> List[IngestResult]:
+) -> list[IngestResult]:
     """将目录下所有 Markdown 文件批量入库。
 
     复用同一个 LLM 客户端和 Neo4j 写入器，避免重复初始化。
@@ -120,7 +119,7 @@ async def ingest_directory(
     writer = Neo4jBatchWriter()
     parsed_docs = MdParser().parse_directory(dir_path)
 
-    results: List[IngestResult] = []
+    results: list[IngestResult] = []
     for parsed in parsed_docs:
         file_path = parsed.metadata.get("source", "")
         try:

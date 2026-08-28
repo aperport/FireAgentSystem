@@ -27,7 +27,7 @@
 import os
 from langchain_core.documents import Document
 from graph_rag.config import get_settings
-from graph_rag.vector_db.collections import get_pg_instance
+from graph_rag.vector_db.collections import PGVectorManager, get_pg_instance
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)

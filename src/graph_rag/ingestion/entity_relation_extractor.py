@@ -9,12 +9,11 @@
 """
 
 import re
-import asyncio
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
 
-from graph_rag.entity_extractor import EntityExtractor, Entity, Relation, ExtractResult
+from graph_rag.entity_extractor import Entity, EntityExtractor, ExtractResult
 from graph_rag.graph_db.schema import validate_extract_result
 from graph_rag.graph_db.writer import Neo4jBatchWriter
 from util_tools.logger import get_logger
@@ -51,7 +50,7 @@ class DocumentEntityExtractor(EntityExtractor):
         self,
         llm_client: ChatOpenAI,
         text: str,
-        context: Optional[str] = None,
+        context: str | None = None,
         config=None,
         entity_extract_model: str = "Davlan/bert-base-multilingual-cased-ner-hrl",
     ):
