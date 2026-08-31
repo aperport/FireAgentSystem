@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -19,6 +19,6 @@ class ParsedDocument:
         metadata: 元数据字典，包含来源、格式、标题链等
     """
     text: str = ""
-    images: List[Dict[str, str]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    images: list[dict[str, str]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     

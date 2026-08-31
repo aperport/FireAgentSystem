@@ -36,3 +36,6 @@ ParsedDocument 是所有解析引擎的统一输出格式（定义在 __init__.p
     - image_parser.py（❌ 待实现）
     - office_parser.py（❌ 待实现）
 """
+
+
+class 
