@@ -42,10 +42,10 @@ Markdown 直接读取模块 — 读取 Markdown 文件并做标准化处理。
 import hashlib
 import re
 from pathlib import Path
-
 from util_tools.logger import get_logger
-
 from . import ParsedDocument
+from typing import Any, Protocol
+
 
 logger = get_logger(__name__)
 
@@ -55,23 +55,126 @@ _IMAGE_PATTERN = re.compile(
 )
 
 
-class MetadataEnhancer:
+class MetadataEnhancer(Protocol):
     """元数据增强器基类 — 可插拔接口，供子类实现自定义增强逻辑。
 
     确定性增强（路径、标题链等）已内置在 MdParser 中，
     此接口用于可选的增强层，如 LLM 辅助提取法规时效性、操作角色等。
     """
 
-    def enhance(self, parsed_doc: ParsedDocument) -> ParsedDocument:
-        """对 ParsedDocument 的 metadata 进行增强。子类覆盖此方法。"""
-        return parsed_doc
+    def enhance(self, parsed_doc: ParsedDocument) -> ParsedDocument: ...
+
+
+class Normalize(Protocol):
+    def normalize_headers(self, text: str) -> str: ...
+
+    def normalize_whitespace(self, text: str) -> str: ...
+
+
+class NormalizeMD():
+
+    def normalize_headers(self, text: str) -> str:
+        """统一标题层级 — 确保标题从 # 开始，无跳级。
+
+        例如原文直接从 ## 跳到 #### 会被调整为 ## → ###。
+        """
+        lines = text.split("\n")
+        min_level_seen = None
+
+        # 找到文档中出现的最高标题级别
+        for line in lines:
+            match = re.match(r"^(#{1,6})\s", line)
+            if match:
+                level = len(match.group(1))
+                if min_level_seen is None or level < min_level_seen:
+                    min_level_seen = level
+
+        # 如果最高级别不是 #（一级），则整体提升
+        if min_level_seen is not None and min_level_seen > 1:
+            offset = min_level_seen - 1
+            for i, line in enumerate(lines):
+                match = re.match(r"^(#{1,6})\s", line)
+                if match:
+                    old_level = len(match.group(1))
+                    new_level = max(1, old_level - offset)
+                    lines[i] = "#" * new_level + line[old_level:]
+
+        return "\n".join(lines)
+
+    def normalize_whitespace(self, text: str) -> str:
+        """规范化空白 — 去除行尾空格，合并连续空行。"""
+        # 去除行尾空格
+        text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
+        # 合并连续空行为最多两个换行
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip() + "\n"
+
+
+def extract_images(text: str) -> list[dict[str, str]]:
+    """提取 Markdown 中的图片引用。
+
+    Returns:
+        图片信息列表，每项包含 path 和 alt
+    """
+    images = []
+    for match in _IMAGE_PATTERN.finditer(text):
+        alt = match.group(1)
+        path = match.group(2)
+        images.append({"path": path, "alt": alt})
+    return images
+
+
+def build_base_metadata(path: Path, text: str) -> dict[str, Any]:
+    """构建基础元数据 — 确定性层，零成本。
+
+    包含字段：
+        - source: 文件绝对路径
+        - filename: 文件名（含扩展名）
+        - suffix: 文件扩展名
+        - format: 固定为 "markdown"
+        - parent_id: 基于文件名的稳定哈希 ID
+        - top_headers: 顶层标题列表（文档的一级标题）
+        - header_chain: 从路径和标题推断的层级路径
+        - char_count: 字符数
+    """
+    # 文件基本信息
+    metadata: dict[str, Any] = {
+        "source": str(path),
+        "filename": path.name,
+        "suffix": path.suffix.lower(),
+        "format": "markdown",
+        "char_count": len(text),
+    }
+
+    # 基于文件名的稳定哈希 ID
+    # ponytail: 基于 path.stem，同名文件会冲突；改用相对路径哈希时升级此处
+    metadata["parent_id"] = hashlib.md5(
+        path.stem.encode("utf-8")
+    ).hexdigest()
+
+    # 提取一级标题作为 top_headers
+    top_headers = []
+    for line in text.split("\n"):
+        match = re.match(r"^#\s+(.+)$", line)
+        if match:
+            top_headers.append(match.group(1).strip())
+    metadata["top_headers"] = top_headers
+
+    # 构建 header_chain：路径目录部分 + 顶层标题
+    dir_parts = path.parts[:-1]  # 去掉文件名
+    header_chain_parts = list(dir_parts)
+    if top_headers:
+        header_chain_parts.append(top_headers[0])
+    metadata["header_chain"] = " > ".join(header_chain_parts) if header_chain_parts else ""
+    return metadata
 
 
 class MdParser:
-    """Markdown 文件解析器 — 读取、标准化、提取图片、构建元数据。"""
+    """Markdown 文件解析"""
 
-    def __init__(self, enhancers: list[MetadataEnhancer]|None =None):
+    def __init__(self, normalizer: Normalize, enhancers: list[MetadataEnhancer] | None = None):
         self.enhancers = enhancers or []
+        self.normalizer = normalizer
 
     def parse(self, file_path: str) -> ParsedDocument:
         """解析单个 Markdown 文件。"""
@@ -85,14 +188,14 @@ class MdParser:
         text = path.read_text(encoding="utf-8")
 
         # 2. 标准化处理
-        text = self._normalize_headers(text)
-        text = self._normalize_whitespace(text)
+        text = self.normalizer.normalize_headers(text)
+        text = self.normalizer.normalize_whitespace(text)
 
         # 3. 提取图片
-        images = self._extract_images(text)
+        images = extract_images(text)
 
         # 4. 构建基础元数据（确定性层）
-        metadata = self._build_base_metadata(path, text)
+        metadata = build_base_metadata(path, text)
 
         parsed_doc = ParsedDocument(text=text, images=images, metadata=metadata)
 
@@ -128,126 +231,3 @@ class MdParser:
 
         logger.info(f"目录解析完成: {dir_path}, 共 {len(results)} 个文档")
         return results
-
-    # ===================== 标准化处理 =====================
-
-    def _normalize_headers(self, text: str) -> str:
-        """统一标题层级 — 确保标题从 # 开始，无跳级。
-
-        例如原文直接从 ## 跳到 #### 会被调整为 ## → ###。
-        """
-        lines = text.split("\n")
-        min_level_seen = None
-
-        # 找到文档中出现的最高标题级别
-        for line in lines:
-            match = re.match(r"^(#{1,6})\s", line)
-            if match:
-                level = len(match.group(1))
-                if min_level_seen is None or level < min_level_seen:
-                    min_level_seen = level
-
-        # 如果最高级别不是 #（一级），则整体提升
-        if min_level_seen is not None and min_level_seen > 1:
-            offset = min_level_seen - 1
-            for i, line in enumerate(lines):
-                match = re.match(r"^(#{1,6})\s", line)
-                if match:
-                    old_level = len(match.group(1))
-                    new_level = max(1, old_level - offset)
-                    lines[i] = "#" * new_level + line[old_level:]
-
-        return "\n".join(lines)
-
-    def _normalize_whitespace(self, text: str) -> str:
-        """规范化空白 — 去除行尾空格，合并连续空行。"""
-        # 去除行尾空格
-        text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
-        # 合并连续空行为最多两个换行
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip() + "\n"
-
-    # ===================== 图片提取 =====================
-
-    def _extract_images(self, text: str) -> list[dict[str, str]]:
-        """提取 Markdown 中的图片引用。
-
-        Returns:
-            图片信息列表，每项包含 path 和 alt
-        """
-        images = []
-        for match in _IMAGE_PATTERN.finditer(text):
-            alt = match.group(1)
-            path = match.group(2)
-            images.append({"path": path, "alt": alt})
-        return images
-
-    # ===================== 元数据构建 =====================
-
-    def _build_base_metadata(self, path: Path, text: str) -> dict[str, any]:
-        """构建基础元数据 — 确定性层，零成本。
-
-        包含字段：
-            - source: 文件绝对路径
-            - filename: 文件名（含扩展名）
-            - suffix: 文件扩展名
-            - format: 固定为 "markdown"
-            - parent_id: 基于文件名的稳定哈希 ID
-            - top_headers: 顶层标题列表（文档的一级标题）
-            - header_chain: 从路径和标题推断的层级路径
-            - char_count: 字符数
-            - category: 文档分类（从路径目录推断）
-        """
-        # 文件基本信息
-        metadata: dict[str, any] = {
-            "source": str(path),
-            "filename": path.name,
-            "suffix": path.suffix.lower(),
-            "format": "markdown",
-            "char_count": len(text),
-        }
-
-        # 基于文件名的稳定哈希 ID
-        # ponytail: 基于 path.stem，同名文件会冲突；改用相对路径哈希时升级此处
-        metadata["parent_id"] = hashlib.md5(
-            path.stem.encode("utf-8")
-        ).hexdigest()
-
-        # 提取一级标题作为 top_headers
-        top_headers = []
-        for line in text.split("\n"):
-            match = re.match(r"^#\s+(.+)$", line)
-            if match:
-                top_headers.append(match.group(1).strip())
-        metadata["top_headers"] = top_headers
-
-        # 构建 header_chain：路径目录部分 + 顶层标题
-        dir_parts = path.parts[:-1]  # 去掉文件名
-        header_chain_parts = list(dir_parts)
-        if top_headers:
-            header_chain_parts.append(top_headers[0])
-        metadata["header_chain"] = " > ".join(header_chain_parts) if header_chain_parts else ""
-
-        # 从路径目录推断分类
-        metadata["category"] = self._infer_category(path)
-
-        return metadata
-
-    def _infer_category(self, path: Path) -> str:
-        """从文件路径目录名推断文档分类。
-
-        消防场景常见分类目录：法规、标准、手册、规程、制度 等。
-        """
-        CATEGORY_DIRS = {
-            "法规": "法规", "laws": "法规",
-            "标准": "标准", "standards": "标准",
-            "手册": "手册", "manuals": "手册",
-            "规程": "规程", "procedures": "规程",
-            "制度": "制度", "policies": "制度",
-            "巡检": "巡检", "inspection": "巡检",
-            "值班": "值班", "duty": "值班",
-        }
-        for part in path.parts:
-            if part in CATEGORY_DIRS:
-                return CATEGORY_DIRS[part]
-        return ""
