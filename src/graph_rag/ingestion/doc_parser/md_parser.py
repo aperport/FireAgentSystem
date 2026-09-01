@@ -71,7 +71,7 @@ class Normalize(Protocol):
     def normalize_whitespace(self, text: str) -> str: ...
 
 
-class NormalizeMD():
+class NormalizeMD:
 
     def normalize_headers(self, text: str) -> str:
         """统一标题层级 — 确保标题从 # 开始，无跳级。

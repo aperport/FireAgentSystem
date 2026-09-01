@@ -157,8 +157,3 @@ async def ingest_directory(
     ok = sum(1 for r in results if r.success)
     logger.info(f"目录入库完成: {dir_path}, 成功={ok}/{len(results)}")
     return results
-
-
-# [删除理由] main() + if __name__ == "__main__": 测试入口已删除。
-# 生产代码不应包含模块级测试，测试应放在 src/test/ 目录下，通过 pytest 运行。
-# 如需手动测试入库，可使用: python -m pytest src/test/ -v 或在 run.py 中添加入口。

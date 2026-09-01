@@ -12,6 +12,7 @@ class ScanPdfTransformer:
     def __init__(self, pdf_path: str, output_path: str | None = None):
         self.pdf_path = pdf_path
         self.output_path = output_path
+        self.md = None
 
     def pdf_check(self):
         """检查 PDF 类型，区分哪一页需要 OCR，哪一页可直接扫描提取。"""
@@ -25,5 +26,11 @@ class ScanPdfTransformer:
         read_result = pdf_inspector.process_pdf(self.pdf_path)
         if not read_result:
             logger.error("提取 PDF 内容失败。")
-            return None
-        return read_result.markdown
+        self.md = read_result.markdown
+
+    def pdf_write_md(self):
+        if not self.md:
+            logger.info("md为空，无法写入，请先提取内容")
+            raise ValueError("md为空，无法写入，请先提取内容")
+        
+
