@@ -37,5 +37,32 @@ ParsedDocument 是所有解析引擎的统一输出格式（定义在 __init__.p
     - office_parser.py（❌ 待实现）
 """
 
+from pathlib import Path
 
-class 
+import filetype
+
+
+def file_geuss(file_path: str) -> str:
+    """文件后缀识别"""
+    path = Path(file_path)
+    kind = filetype.guess(path)
+    if kind is None:
+        return "unknown"
+    return kind.extension
+
+
+def parse_router(file_path: str, kind_result: str) -> str:
+    """文件后缀 → 引擎路由映射，"""
+    match kind_result:
+        case "md" | "markdown":
+            return "md_parser"
+        case "pdf":
+            return "pdf_parser"
+        case "png" | "jpg" | "jpeg" | "bmp":
+            return "image_parser"
+        case "docx" | "doc":
+            return "office_parser"
+        case "html" | "htm":
+            return "office_parser"
+        case _:
+            return "office_parser"
