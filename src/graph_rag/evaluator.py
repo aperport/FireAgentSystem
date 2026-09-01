@@ -1,38 +1,6 @@
 """
 RAGAS 质量评估模块 — 对 GraphRAG 生成的回答进行质量评估。
 
-✅ 主体逻辑已实现。评估指标：
-    1. Faithfulness（忠实度）：回答是否完全基于上下文，是否编造
-    2. AnswerRelevancy（答案相关性）：回答是否切题、完整
-    3. ContextPrecision（上下文精确率）：检索内容与问题的相关性
-    4. ContextRecall（上下文召回率）：是否检索到足够信息
-    5. AnswerCorrectness（回答正确性）：与标准答案的对比
-
-    忠实度和答案相关性侧重点不同：
-    - 忠实度关注模型是否严格遵循上下文
-    - 答案相关性关注模型是否直接、完整且有效地回答了问题
-
-评估结果处理：
-    - score ≥ 0.7：通过，直接输出
-    - score < 0.7：不达标
-        - 人工审批模式 → approve/reject
-        - 自动模式 → 返回"知识库暂未收录该内容的完整答案"
-
-已实现方法：
-    - load_evaluation_data()  加载 JSON 评估数据集
-    - run_evaluation()        运行 RAGAS 五项指标评估
-    - print_results()         打印格式化评估报告
-    - save_results()          保存 CSV + JSON 摘要
-
-⚠️ 已知问题：
-    1. Embedding 模型硬编码为 BAAI/bge-small-zh-v1.5 + cuda，
-       应从 config.py 读取
-
-由 orchestrator.py 在 LLM 生成回答后调用（当前未接入）。
-
-待优化：
-    - 接入 orchestrator 的评估流程
-    - 增量评估：仅评估新增数据，避免全量重跑
 """
 
 
@@ -60,13 +28,15 @@ from util_tools.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+
 class RAGASEvaluator:
-    def __init__(self,json_file_path: str, llm: BaseChatModel | None = None) -> None:
+    def __init__(self, json_file_path: str, llm: BaseChatModel | None = None) -> None:
         s = get_settings()
-        self.model_name : str = s.embedding_model_name
-        self.embeddings: HuggingFaceEmbeddings|None = None
-        self.llm : BaseChatModel = llm or ChatOpenAI(model="deepseek-chat")
-        self.json_file_path : str = json_file_path
+        self.model_name: str = s.embedding_model_name
+        self.embeddings: HuggingFaceEmbeddings | None = None
+        self.llm: BaseChatModel = llm or ChatOpenAI(model="deepseek-chat")
+        self.json_file_path: str = json_file_path
 
     def load_evaluation_data(self):
         """
@@ -82,7 +52,7 @@ class RAGASEvaluator:
         logger.info(f"加载评估数据集,数据量：{len(data)}")
 
         return data
-    
+
     def run_evaluation(self):
         """
         运行评估
@@ -90,19 +60,19 @@ class RAGASEvaluator:
         logger.info("开始评估")
         s = get_settings()
         self.embeddings = HuggingFaceEmbeddings(model_name=self.model_name,
-                                        model_kwargs={"device": s.embedding_device},
-                                        encode_kwargs={"normalize_embeddings": True})
+                                                model_kwargs={"device": s.embedding_device},
+                                                encode_kwargs={"normalize_embeddings": True})
         # 1. 加载数据
         eval_data = self.load_evaluation_data()
         dataset = Dataset.from_list(eval_data)
         # 2. 配置评估指标
         metrics = [
-        Faithfulness(),      # 忠实度：答案是否基于上下文
-        AnswerRelevancy(),   # 回答相关性：答案与问题的匹配度
-        ContextPrecision(),  # 上下文精确率：检索内容的相关性
-        ContextRecall(),     # 上下文召回率：是否检索到足够信息
-        AnswerCorrectness()  # 回答正确性：与标准答案的对比
-    ]
+            Faithfulness(),      # 忠实度：答案是否基于上下文
+            AnswerRelevancy(),   # 回答相关性：答案与问题的匹配度
+            ContextPrecision(),  # 上下文精确率：检索内容的相关性
+            ContextRecall(),     # 上下文召回率：是否检索到足够信息
+            AnswerCorrectness()  # 回答正确性：与标准答案的对比
+        ]
 
         # 3. 配置运行参数（避免请求过载）
         run_config = RunConfig(
@@ -136,8 +106,8 @@ class RAGASEvaluator:
         # 保存结果
         self.save_results(df)
         return results
-    
-    def print_results(self,df: pd.DataFrame):
+
+    def print_results(self, df: pd.DataFrame):
         """
         打印格式化的评估报告
         """
@@ -184,7 +154,7 @@ class RAGASEvaluator:
 
         print("\n" + "=" * 60)
 
-    def save_results(self,df: pd.DataFrame):
+    def save_results(self, df: pd.DataFrame):
         """
         保存评估结果
         """
@@ -230,4 +200,14 @@ class RAGASEvaluator:
 
         return result_dir
 
-    
+
+class ReferenceFreeEvaluation():
+    """
+    无需人工标注答案，根据模型生成的结果进行评估，需要大模型实现评估
+    """
+
+
+class ReferenceBasedEvaluation():
+    """
+    需要人工标注答案。
+    """

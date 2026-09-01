@@ -1,31 +1,6 @@
 """
 实体抽取模块 — 通用实体/关系抽取引擎，同时服务于查询端和入库端。
 
-✅ 查询端已实现：从用户自然语言问题中提取关键实体，供 graph_traverser 图遍历。
-❌ 入库端待重构：从知识文档段落中抽取实体和关系，供 ingestion/entity_relation_extractor 写入 Neo4j。
-
-抽取方式（两端共用）：
-    1. LLM抽取：通过 with_structured_output(ExtractResult) 提取实体名称和类型
-    2. NER抽取：基于 HuggingFace BERT 小模型（Davlan/bert-base-multilingual-cased-ner-hrl）
-    3. 两种抽取结果进行去重融合（LLM 为主，NER 为补充），采用异步模式
-
-已实现方法：
-    - entity_extract_llm()   LLM 结构化抽取（异步，2秒超时）
-    - entity_extract_ner()   NER 小模型抽取（同步，通过 asyncio.to_thread 包装）
-    - merge_results()        LLM+NER 结果融合（LLM 为主，NER 补充 Unknown 类型实体）
-    - _is_similar()          文本相似度判断（包含关系 / 字符重叠率）
-    - main_pip()             异步管线入口（LLM+NER 并行 → 融合）
-
-消防领域典型实体：
-    - 设备：烟感探测器-01、喷淋泵、EPS电源
-    - 法规：建筑设计防火规范、医疗机构消防安全管理规范
-    - 区域：ICU病房、B栋3层、地下车库
-    - 模块：消防巡检、消防维修
-
-补充：
-    目前优先使用 LLM 抽取结果，可考虑在LLM抽取时，将问题以及LLM的输出结果持久化入数据库，
-    后续考虑对提问数据进行清洗，用于训练本地小模型，效果好的话，可以直接使用本地小模型进行抽取，
-    LLM作为兜底，进而降低LLM调用次数与时间。
 
 """
 import asyncio
@@ -62,14 +37,18 @@ class Entity(BaseModel):
     name: str
     type: str
 
+
 class Relation(BaseModel):
     source: str
     target: str
     relation: str
 
+
 class ExtractResult(BaseModel):
     entities: list[Entity]
     relations: list[Relation]
+
+
 """
 范例
 ExtractResult(
@@ -85,9 +64,9 @@ ExtractResult(
 """
 
 
-
 class EntityExtractor:
-    def __init__(self,llm_client:ChatOpenAI,query:str,config:RunnableConfig|None=None,entity_extract_model:str="Davlan/bert-base-multilingual-cased-ner-hrl"):
+    def __init__(self, llm_client: ChatOpenAI, query: str, config: RunnableConfig | None = None,
+                 entity_extract_model: str = "Davlan/bert-base-multilingual-cased-ner-hrl"):
         self.config = config
         self.llm_client = llm_client
         self.query = query
@@ -100,8 +79,6 @@ class EntityExtractor:
 
         self.pipe = _get_ner_pipeline(entity_extract_model)
 
-
-    
     # ── 图 Schema 常量（来自 graph_db/schema.py），供 prompt 引用 ──
     # ponytail: 统一到 schema.py，此处仅引用，不再重复定义
 
@@ -182,7 +159,8 @@ class EntityExtractor:
                 return None
 
             # 从 LLM 返回文本中提取 JSON（兼容 ```json ... ``` 包裹和裸 JSON）
-            import re, json
+            import re
+            import json
             json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
@@ -205,8 +183,6 @@ class EntityExtractor:
         防止它在计算时阻塞 Python 的主事件循环，导致llm不执行。
         """
         return await asyncio.to_thread(self.entity_extract_ner)
-        
-        
 
     def entity_extract_ner(self):
         """
@@ -221,9 +197,9 @@ class EntityExtractor:
                 "end": entity["end"],
                 "source": "Local_BERT"
             })
-            
+
         return formatted
-    
+
     @staticmethod
     def _is_similar(text_a: str, text_b: str, threshold: float = 0.6) -> bool:
         """
@@ -275,7 +251,7 @@ class EntityExtractor:
             entities=merged_entities,
             relations=llm_result.relations
         )
-    
+
     async def main_pip(self):
         start_time = time.time()
         # 1. 并发创建两个任务
