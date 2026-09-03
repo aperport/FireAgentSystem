@@ -37,13 +37,6 @@ CLAUSE_PATTERNS: list[re.Pattern] = [
 
 class DocumentEntityExtractor(EntityExtractor):
     """文档模式实体抽取器 — 覆盖 prompt 为文档抽取模式。
-
-    与查询端 EntityExtractor 的区别：
-        - query 模式：约束"仅提取问题中明确提及的实体"
-        - document 模式：约束"提取段落中所有实体和关系"
-
-    复用的方法（来自父类）：
-        - entity_extract_llm / entity_extract_ner / merge_results / _is_similar / main_pip
     """
 
     def __init__(

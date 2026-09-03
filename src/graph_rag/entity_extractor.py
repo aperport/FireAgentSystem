@@ -1,7 +1,5 @@
 """
 实体抽取模块 — 通用实体/关系抽取引擎，同时服务于查询端和入库端。
-
-
 """
 import asyncio
 import os
@@ -11,28 +9,26 @@ from pydantic import BaseModel
 from util_tools.logger import get_logger
 from langchain_openai import ChatOpenAI
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
-import httpx
 from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
+from functools import lru_cache
 
 logger = get_logger(__name__)
 
-_NER_PIPELINE = None
-_NER_LOCK = asyncio.Lock() if hasattr(asyncio, 'Lock') else None
 
-
+# @lru_cache参数为1时，每次调用都会重新计算，为0时，相同的参数才会唯一，如传入不同的模型名称。会有两个实例
+@lru_cache
 def _get_ner_pipeline(model_name: str = "Davlan/bert-base-multilingual-cased-ner-hrl"):
-    """获取 NER pipeline 全局单例（懒加载，模型只加载一次 ~400MB）。"""
-    global _NER_PIPELINE
-    if _NER_PIPELINE is None:
-        logger.info("首次加载 NER 模型: %s", model_name)
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForTokenClassification.from_pretrained(model_name)
-        _NER_PIPELINE = pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")
-        logger.info("NER 模型加载完成")
-    return _NER_PIPELINE
+    """
+    获取唯一单例，懒加载。
+    """
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForTokenClassification.from_pretrained(model_name)
+    ner_pipeline = pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")  # type: ignore
+    return ner_pipeline
 
 
 # 定义LLM输出结构
+
 class Entity(BaseModel):
     name: str
     type: str
@@ -45,23 +41,21 @@ class Relation(BaseModel):
 
 
 class ExtractResult(BaseModel):
+    """
+    范例
+    ExtractResult(
+        entities=[
+            Entity(name="烟感探测器", type="Equipment"),
+            Entity(name="ICU病房", type="Zone"),
+            Entity(name="消防巡检", type="Module"),
+        ],
+        relations=[
+            Relation(source="烟感探测器", target="ICU病房", relation="安装于"),
+        ]
+    )
+    """
     entities: list[Entity]
     relations: list[Relation]
-
-
-"""
-范例
-ExtractResult(
-    entities=[
-        Entity(name="烟感探测器", type="Equipment"),
-        Entity(name="ICU病房", type="Zone"),
-        Entity(name="消防巡检", type="Module"),
-    ],
-    relations=[
-        Relation(source="烟感探测器", target="ICU病房", relation="安装于"),
-    ]
-)
-"""
 
 
 class EntityExtractor:
@@ -271,5 +265,3 @@ class EntityExtractor:
         end_time = time.time()
         logger.info("总耗时:%.2f秒", end_time - start_time)
         return result
-
-#  测试

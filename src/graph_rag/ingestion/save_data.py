@@ -1,17 +1,14 @@
-import sys
-from pathlib import Path
-
-# ponytail: 测试脚本，手动把 src/ 加入搜索路径
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+"""将文档完整入库（PG 向量 + Neo4j 图谱）。"""
 
 
 from dataclasses import dataclass
 from typing import Optional
 
 from langchain_core.language_models import BaseChatModel
+from langchain_openai import ChatOpenAI
 
 from graph_rag.graph_db.writer import Neo4jBatchWriter
-from graph_rag.ingestion.doc_parser.md_parser import MdParser
+from graph_rag.ingestion.doc_parser.md_parser import MdParser, Normalize
 from graph_rag.ingestion.entity_relation_extractor import extract_and_write_document
 from graph_rag.ingestion.splitter import split
 from graph_rag.vector_db.db_operator import DBOperator
@@ -34,12 +31,14 @@ class IngestResult:
     error: str = ""
 
 
-# ─── 顶层编排 ───
+#  ─── 顶层编排 ───
+
 
 async def ingest_markdown(
     file_path: str,
-    llm_client: Optional[BaseChatModel] = None,
-    writer: Optional[Neo4jBatchWriter] = None,
+    md_parser: MdParser,
+    llm_client: ChatOpenAI,
+    writer: Neo4jBatchWriter | None = None,
 ) -> IngestResult:
     """将单个 Markdown 文件完整入库（PG 向量 + Neo4j 图谱）。
 
@@ -55,7 +54,7 @@ async def ingest_markdown(
 
     try:
         # 1. 解析
-        parsed = MdParser().parse(file_path)
+        parsed = md_parser.parse(file_path)
 
         # 2. 切分
         text_chunks, image_docs = split(parsed)
@@ -103,7 +102,8 @@ async def ingest_markdown(
 
 async def ingest_directory(
     dir_path: str,
-    llm_client: Optional[BaseChatModel] = None,
+    md_parser: MdParser,
+    llm_client: ChatOpenAI,
 ) -> list[IngestResult]:
     """将目录下所有 Markdown 文件批量入库。
 
@@ -117,7 +117,7 @@ async def ingest_directory(
         raise ValueError("llm_client 不能为空，请由调用方注入 LLM 实例")
 
     writer = Neo4jBatchWriter()
-    parsed_docs = MdParser().parse_directory(dir_path)
+    parsed_docs = md_parser.parse_directory(dir_path)
 
     results: list[IngestResult] = []
     for parsed in parsed_docs:
