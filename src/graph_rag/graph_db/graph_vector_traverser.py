@@ -15,8 +15,7 @@
     GraphVectorTraverser(query, extract_result, neo4j_driver, embedder).search() -> list[SubGraphResult]
 """
 
-import os
-from typing import Optional
+from typing import Protocol
 
 import numpy as np
 from langchain_core.embeddings import Embeddings
@@ -26,7 +25,6 @@ from neo4j import AsyncDriver
 from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers
-from graph_rag.graph_db.schema import REL_TYPES
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -54,7 +52,22 @@ _REL_CONNECTOR = {
     "安装于": "安装在",
     "依赖": "依赖",
 }
+class GraphPathTraverserProtocol(Protocol):
 
+    async def two_hop_traverse(self, extract_result: ExtractResult):
+        ...
+
+class PathTextFormatterProtocol(Protocol):
+
+    def paths_to_texts(self,paths) :
+        ...
+
+
+class VectorRerankerProtocol(Protocol):
+
+    def rank_by_similarity(self, query: str, subgraph_texts: list[dict]):
+        ...
+        
 
 class SubGraphResult:
     """单条子图检索结果"""
@@ -77,93 +90,34 @@ class GraphVectorTraverser:
     """
 
     def __init__(
-        self,
-        query: str,
-        extract_result: ExtractResult,
-        neo4j_driver: Neo4jDrivers,
-        embedder: Optional[Embeddings] = None,
-        top_k: int = 5,
-        max_paths_per_entity: int = 20,
-        score_threshold: float = 0.3,
+        self,graph_path_traverser: GraphPathTraverserProtocol, path_text_formatter:PathTextFormatterProtocol, vector_reranker_protocol: VectorRerankerProtocol
     ):
-        self.query = query
-        self.extract_result = extract_result
-        self.neo4j_driver = neo4j_driver
-        self.top_k = top_k
-        self.max_paths_per_entity = max_paths_per_entity
-        self.score_threshold = score_threshold
 
-        if embedder is None:
-            s = get_settings()
-            self.embedder = HuggingFaceEmbeddings(model_name=s.embedding_model_name,
-                                                   model_kwargs={"device": s.embedding_device},
-                                                   encode_kwargs={"normalize_embeddings": True})
-        else:
-            self.embedder = embedder
-
-        self._query_embedding: Optional[list[float]] = None
-
-    async def search(self) -> list[SubGraphResult]:
+        self.graph_path_traverser = graph_path_traverser
+        self.path_text_formatter = path_text_formatter
+        self.vector_reranker_protocol = vector_reranker_protocol
+    async def search(self, query: str, extract_result: ExtractResult) -> list[SubGraphResult]:
         """执行完整检索流程：遍历 → 文本化 → 精排"""
-        driver = await self.neo4j_driver._get_async_driver()
 
         # 1. 两跳遍历，收集所有子图路径
-        all_paths = await self._two_hop_traverse(driver)
+        all_paths = await self.graph_path_traverser.two_hop_traverse(extract_result)
         if not all_paths:
             logger.info("两跳遍历结果为空")
             return []
 
         # 2. 子图文本化
-        subgraph_texts = self._paths_to_texts(all_paths)
+        subgraph_texts = self.path_text_formatter.paths_to_texts(all_paths)
         if not subgraph_texts:
             logger.info("子图文本化结果为空")
             return []
 
         # 3. 向量相似度精排
-        results = self._rank_by_similarity(subgraph_texts)
+        results = self.vector_reranker_protocol.rank_by_similarity(query, subgraph_texts)
         return results
 
-    async def _two_hop_traverse(self, driver: AsyncDriver) -> list[dict]:
-        """对每个实体做两跳遍历，收集所有路径"""
-        all_paths = []
-        for entity in self.extract_result.entities:
-            if not entity or not entity.name:
-                continue
-            try:
-                paths = await self._traverse_entity(driver, entity)
-                all_paths.extend(paths)
-            except Exception as e:
-                logger.warning("实体 %s 两跳遍历失败: %s", entity.name, e)
-        logger.info("两跳遍历完成，共 %d 条路径", len(all_paths))
-        return all_paths
-
-    async def _traverse_entity(self, driver: AsyncDriver, entity: Entity) -> list[dict]:
-        """单个实体的两跳遍历"""
-        async with driver.session(database=self.neo4j_driver.database) as session:
-            result = await session.run(
-                _TWO_HOP_CYPHER,
-                {"entity_name": entity.name, "max_paths": self.max_paths_per_entity},
-            )
-            records = await result.data()
-
-        paths = []
-        for record in records:
-            start_node = record.get("start")
-            end_node = record.get("end")
-            rel_types = record.get("rel_types", [])
-            if start_node is None or end_node is None:
-                continue
-            paths.append({
-                "entity_name": entity.name,
-                "entity_type": entity.type,
-                "start": dict(start_node) if start_node else {},
-                "end": dict(end_node) if end_node else {},
-                "rel_types": rel_types,
-            })
-        logger.debug("实体 %s 遍历到 %d 条路径", entity.name, len(paths))
-        return paths
-
-    def _paths_to_texts(self, paths: list[dict]) -> list[dict]:
+class PathTextFormatter:
+    @staticmethod
+    def paths_to_texts(paths: list[dict]) -> list[dict]:
         """将子图路径用连接词映射拼接为自然语言文本"""
         results = []
         seen_texts = set()
@@ -201,17 +155,36 @@ class GraphVectorTraverser:
 
         logger.info("子图文本化完成，去重后 %d 条", len(results))
         return results
+class VectorReranker:
 
-    def _rank_by_similarity(self, subgraph_texts: list[dict]) -> list[SubGraphResult]:
-        """向量相似度精排：对子图文本做 Embedding，与问题向量做余弦相似度"""
+    def __init__(self, embedder: Embeddings | None = None, top_k: int = 5, score_threshold: float = 0.3):
+        """
+        args:
+            embedder: Embeddings  实体抽取模型，不填写默认系统配置
+            top_k: Top-K        返回的子图数量
+            max_paths_per_entity: 每个实体最多遍历的路径数
+            score_threshold:    相似度阈值
+        """
+        s = get_settings()
+        self.top_k = top_k
+        self.score_threshold = score_threshold
+        self.embedder = embedder or HuggingFaceEmbeddings(model_name=s.embedding_model_name,
+                                                   model_kwargs={"device": s.embedding_device},
+                                                   encode_kwargs={"normalize_embeddings": True})
+
+    def rank_by_similarity(self, query: str, subgraph_texts: list[dict]) -> list[SubGraphResult]:
+        """
+        向量相似度精排：对子图文本做 Embedding，与问题向量做余弦相似度
+        args:
+            subgraph_texts: list[dict] 查询结果
+        returns:
+            list[SubGraphResult]
+        """
         if not subgraph_texts:
             return []
 
-        # 问题 Embedding（只算一次）
-        if self._query_embedding is None:
-            self._query_embedding = self.embedder.embed_query(self.query)
-
-        query_vec = np.array(self._query_embedding)
+        _query_embedding = self.embedder.embed_query(query)
+        query_vec = np.array(_query_embedding)
 
         # 子图文本 Embedding
         texts = [item["text"] for item in subgraph_texts]
@@ -241,3 +214,54 @@ class GraphVectorTraverser:
 
         logger.info("向量精排完成，%d 条结果超过阈值 %.2f，取 Top-%d", len(results), self.score_threshold, self.top_k)
         return results
+
+
+class GraphPathTraverser:
+    """
+    接收实体列表，执行两跳遍历，返回所有子图路径数据
+    """
+    def __init__(self,neo4j_driver: Neo4jDrivers, max_paths_per_entity: int = 20):
+        self.max_paths_per_entity = max_paths_per_entity
+        self.neo4j_driver = neo4j_driver
+
+    async def _traverse_entity(self, driver: AsyncDriver, entity: Entity):
+        async with driver.session(database=self.neo4j_driver.database) as session:
+            result = await session.run(
+                _TWO_HOP_CYPHER,
+                {"entity_name": entity.name, "max_paths": self.max_paths_per_entity},
+            )
+            records = await result.data()
+
+        paths = []
+        for record in records:
+            start_node = record.get("start")
+            end_node = record.get("end")
+            rel_types = record.get("rel_types", [])
+            if start_node is None or end_node is None:
+                continue
+            paths.append({
+                "entity_name": entity.name,
+                "entity_type": entity.type,
+                "start": dict(start_node) if start_node else {},
+                "end": dict(end_node) if end_node else {},
+                "rel_types": rel_types,
+            })
+        logger.debug("实体 %s 遍历到 %d 条路径", entity.name, len(paths))
+        return paths
+    
+    async def two_hop_traverse(self, extract_result: ExtractResult) -> list[dict]:
+        """对每个实体做两跳遍历，收集所有路径"""
+        driver = await self.neo4j_driver._get_async_driver()
+        all_paths = []
+        for entity in extract_result.entities:
+            if not entity or not entity.name:
+                continue
+            try:
+                paths = await self._traverse_entity(driver, entity)
+                all_paths.extend(paths)
+            except Exception as e:
+                logger.warning("实体 %s 两跳遍历失败: %s", entity.name, e)
+        logger.info("两跳遍历完成，共 %d 条路径", len(all_paths))
+        return all_paths
+    
+

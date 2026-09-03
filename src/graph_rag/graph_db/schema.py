@@ -31,7 +31,7 @@
 
 
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -175,51 +175,3 @@ class ZoneNode:
 # 关系的结构约束已由 REL_TYPES 字典和 validate_extract_result() 充分表达。
 
 
-# ──────────────── 抽取结果校验 ────────────────
-
-def validate_extract_result(result: "ExtractResult") -> "ExtractResult":
-    """校验抽取结果与 schema 的对齐情况。
-
-    校验规则：
-        1. 实体 type 必须在 NODE_TYPES 中
-        2. 关系 rel_type 必须在 REL_TYPES 中
-        3. 移除不合法的实体和关系，记录日志
-
-    Args:
-        result: 原始抽取结果
-
-    Returns:
-        校验后的抽取结果（可能比输入少）
-    """
-    from graph_rag.entity_extractor import ExtractResult  # ponytail: 延迟导入避免循环
-
-    valid_node_types = set(NODE_TYPES.keys())
-    valid_rel_types = set(REL_TYPES.keys())
-
-    valid_entities = []
-    for entity in result.entities:
-        if entity.type in valid_node_types:
-            valid_entities.append(entity)
-        else:
-            logger.warning(f"校验移除实体: name={entity.name!r}, type={entity.type!r} (不在 NODE_TYPES 中)")
-
-    valid_relations = []
-    for relation in result.relations:
-        if relation.relation in valid_rel_types:
-            valid_relations.append(relation)
-        else:
-            logger.warning(
-                f"校验移除关系: source={relation.source!r}, target={relation.target!r}, "
-                f"rel={relation.relation!r} (不在 REL_TYPES 中)"
-            )
-
-    removed_entities = len(result.entities) - len(valid_entities)
-    removed_relations = len(result.relations) - len(valid_relations)
-
-    if removed_entities or removed_relations:
-        logger.info(
-            f"校验结果: 移除 {removed_entities} 个非法实体, {removed_relations} 个非法关系, "
-            f"保留 {len(valid_entities)} 个实体, {len(valid_relations)} 个关系"
-        )
-
-    return ExtractResult(entities=valid_entities, relations=valid_relations)
