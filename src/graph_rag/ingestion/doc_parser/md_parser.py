@@ -66,14 +66,16 @@ class MetadataEnhancer(Protocol):
 
 
 class Normalize(Protocol):
-    def normalize_headers(self, text: str) -> str: ...
-
-    def normalize_whitespace(self, text: str) -> str: ...
+    @staticmethod
+    def normalize_headers(text: str) -> str: ...
+    @staticmethod
+    def normalize_whitespace(text: str) -> str: ...
 
 
 class NormalizeMD:
 
-    def normalize_headers(self, text: str) -> str:
+    @staticmethod
+    def normalize_headers(text: str) -> str:
         """统一标题层级 — 确保标题从 # 开始，无跳级。
 
         例如原文直接从 ## 跳到 #### 会被调整为 ## → ###。
@@ -101,7 +103,8 @@ class NormalizeMD:
 
         return "\n".join(lines)
 
-    def normalize_whitespace(self, text: str) -> str:
+    @staticmethod
+    def normalize_whitespace(text: str) -> str:
         """规范化空白 — 去除行尾空格，合并连续空行。"""
         # 去除行尾空格
         text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
