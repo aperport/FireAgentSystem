@@ -5,7 +5,8 @@
 
 写入和校验复用 graph_db 子模块：
     - Neo4jBatchWriter / MERGE 模板 → graph_db.writer
-    - validate_extract_result        → graph_db.schema
+    - NODE_TYPES / REL_TYPES        → graph_db.schema
+    - validate_extract_result       → 本模块（见文件末尾）
 """
 
 import re

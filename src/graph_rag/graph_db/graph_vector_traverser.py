@@ -11,8 +11,13 @@
     GraphTraverser — 实体匹配 → 固定模板查询（结构驱动）
     GraphVectorTraverser — 实体扩散 → 向量精排（语义驱动）
 
+可替换组件（以 Protocol 声明，构造时注入，默认实现见本模块同名类）：
+    - GraphPathTraverserProtocol → GraphPathTraverser   两跳图遍历
+    - PathTextFormatterProtocol  → PathTextFormatter    子图路径 → 自然语言文本
+    - VectorRerankerProtocol     → VectorReranker       向量相似度精排
+
 对外接口：
-    GraphVectorTraverser(query, extract_result, neo4j_driver, embedder).search() -> list[SubGraphResult]
+    GraphVectorTraverser(traverser, formatter, reranker).search(query, extract_result) -> list[SubGraphResult]
 """
 
 from typing import Protocol
@@ -24,7 +29,7 @@ from neo4j import AsyncDriver
 
 from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
-from graph_rag.graph_db.connection import Neo4jDrivers
+from graph_rag.graph_db.connection import Neo4jDrivers, get_neo4j_driver
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -52,14 +57,17 @@ _REL_CONNECTOR = {
     "安装于": "安装在",
     "依赖": "依赖",
 }
+
+
 class GraphPathTraverserProtocol(Protocol):
 
     async def two_hop_traverse(self, extract_result: ExtractResult):
         ...
 
+
 class PathTextFormatterProtocol(Protocol):
 
-    def paths_to_texts(self,paths) :
+    def paths_to_texts(self, paths):
         ...
 
 
@@ -67,7 +75,7 @@ class VectorRerankerProtocol(Protocol):
 
     def rank_by_similarity(self, query: str, subgraph_texts: list[dict]):
         ...
-        
+
 
 class SubGraphResult:
     """单条子图检索结果"""
@@ -90,13 +98,16 @@ class GraphVectorTraverser:
     """
 
     def __init__(
-        self,graph_path_traverser: GraphPathTraverserProtocol, path_text_formatter:PathTextFormatterProtocol, vector_reranker_protocol: VectorRerankerProtocol
-    ):
+            self,
+            graph_path_traverser: GraphPathTraverserProtocol,
+            path_text_formatter: PathTextFormatterProtocol,
+            vector_reranker_protocol: VectorRerankerProtocol):
 
         self.graph_path_traverser = graph_path_traverser
         self.path_text_formatter = path_text_formatter
         self.vector_reranker_protocol = vector_reranker_protocol
-    async def search(self, query: str, extract_result: ExtractResult) -> list[SubGraphResult]:
+
+    async def search(self, query: str, extract_result: ExtractResult) -> list[SubGraphResult] | None:
         """执行完整检索流程：遍历 → 文本化 → 精排"""
 
         # 1. 两跳遍历，收集所有子图路径
@@ -114,6 +125,7 @@ class GraphVectorTraverser:
         # 3. 向量相似度精排
         results = self.vector_reranker_protocol.rank_by_similarity(query, subgraph_texts)
         return results
+
 
 class PathTextFormatter:
     @staticmethod
@@ -155,6 +167,8 @@ class PathTextFormatter:
 
         logger.info("子图文本化完成，去重后 %d 条", len(results))
         return results
+
+
 class VectorReranker:
 
     def __init__(self, embedder: Embeddings | None = None, top_k: int = 5, score_threshold: float = 0.3):
@@ -169,8 +183,8 @@ class VectorReranker:
         self.top_k = top_k
         self.score_threshold = score_threshold
         self.embedder = embedder or HuggingFaceEmbeddings(model_name=s.embedding_model_name,
-                                                   model_kwargs={"device": s.embedding_device},
-                                                   encode_kwargs={"normalize_embeddings": True})
+                                                          model_kwargs={"device": s.embedding_device},
+                                                          encode_kwargs={"normalize_embeddings": True})
 
     def rank_by_similarity(self, query: str, subgraph_texts: list[dict]) -> list[SubGraphResult]:
         """
@@ -220,12 +234,15 @@ class GraphPathTraverser:
     """
     接收实体列表，执行两跳遍历，返回所有子图路径数据
     """
-    def __init__(self,neo4j_driver: Neo4jDrivers, max_paths_per_entity: int = 20):
+
+    def __init__(self, driver: Neo4jDrivers | None = None, max_paths_per_entity: int = 20):
+        self.driver = driver or get_neo4j_driver()
         self.max_paths_per_entity = max_paths_per_entity
-        self.neo4j_driver = neo4j_driver
 
     async def _traverse_entity(self, driver: AsyncDriver, entity: Entity):
-        async with driver.session(database=self.neo4j_driver.database) as session:
+        """单个实体的两跳遍历"""
+
+        async with driver.session(database=self.driver.database) as session:
             result = await session.run(
                 _TWO_HOP_CYPHER,
                 {"entity_name": entity.name, "max_paths": self.max_paths_per_entity},
@@ -248,10 +265,10 @@ class GraphPathTraverser:
             })
         logger.debug("实体 %s 遍历到 %d 条路径", entity.name, len(paths))
         return paths
-    
+
     async def two_hop_traverse(self, extract_result: ExtractResult) -> list[dict]:
         """对每个实体做两跳遍历，收集所有路径"""
-        driver = await self.neo4j_driver._get_async_driver()
+        driver = await self.driver._get_async_driver()
         all_paths = []
         for entity in extract_result.entities:
             if not entity or not entity.name:
@@ -263,5 +280,3 @@ class GraphPathTraverser:
                 logger.warning("实体 %s 两跳遍历失败: %s", entity.name, e)
         logger.info("两跳遍历完成，共 %d 条路径", len(all_paths))
         return all_paths
-    
-

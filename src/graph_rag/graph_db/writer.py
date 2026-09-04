@@ -10,15 +10,14 @@ Cypher 模板从 schema.py 的 dataclass 字段和 REL_TYPES 方向自动生成�
     - entity_extractor.py（Entity, Relation 模型）
 """
 
-import os
 import dataclasses
 from typing import Optional
 
 from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, Relation
-from graph_rag.graph_db.connection import Neo4jDrivers
+from graph_rag.graph_db.connection import Neo4jDrivers, get_neo4j_driver
 from graph_rag.graph_db.schema import (
-    NODE_TYPES, REL_TYPES,
+    REL_TYPES,
     ModuleNode, FunctionNode, StepNode, RequirementNode,
     RegulationNode, ClauseNode, StandardNode,
     ZoneTypeNode, EquipmentTypeNode, EquipmentNode, ZoneNode,
@@ -26,18 +25,6 @@ from graph_rag.graph_db.schema import (
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-_N4JD: Neo4jDrivers | None = None
-
-
-def get_neo4j_driver() -> Neo4jDrivers:
-    """进程级 Neo4j 驱动单例（线程安全，懒加载）。"""
-    global _N4JD
-    if _N4JD is None:
-        s = get_settings()
-        _N4JD = Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
-    return _N4JD
 
 
 # ===================== Cypher 模板自动生成 =====================
@@ -125,7 +112,7 @@ class Neo4jBatchWriter:
         self.batch_size = batch_size
 
     async def write_nodes(
-        self, entities: list[Entity], extra_props: Optional[dict[str, dict]] = None,
+        self, entities: list[Entity], extra_props: dict[str, dict] = {},
     ) -> int:
         """批量写入节点。extra_props: 实体名 → 额外属性。"""
         return await self._batch_write(
@@ -178,7 +165,7 @@ class Neo4jBatchWriter:
 
             async with a_driver.session(database=self.driver.database) as session:
                 for start in range(0, len(rows), self.batch_size):
-                    batch = rows[start : start + self.batch_size]
+                    batch = rows[start: start + self.batch_size]
                     try:
                         await session.run(cypher, {"rows": batch})
                         total += len(batch)

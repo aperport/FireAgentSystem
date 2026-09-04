@@ -32,6 +32,8 @@ Neo4j 连接管理 — 管理 Neo4j 驱动的连接池与会话生命周期。
 """
 from util_tools.logger import get_logger
 from neo4j import GraphDatabase, AsyncGraphDatabase
+from functools import lru_cache
+from graph_rag.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -160,3 +162,8 @@ class Neo4jDrivers:
             logger.info("Neo4j 异步驱动已关闭")
             self._async_driver = None
 
+
+@lru_cache
+def get_neo4j_driver() -> Neo4jDrivers:
+    s = get_settings()
+    return Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
