@@ -4,7 +4,6 @@ Embedding 向量化模块 — 使用 HuggingFace bge-small-zh-v1.5 本地模型�
 图片通过 alt/OCR 文本间接实现图文检索，非多模态向量。
 """
 
-import os
 import asyncio
 from typing import Optional
 

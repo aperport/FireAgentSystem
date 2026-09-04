@@ -57,6 +57,99 @@ class ExtractResult(BaseModel):
     entities: list[Entity]
     relations: list[Relation]
 
+class NerEntityExtractor:
+    """
+    利用本地NER实体抽取器，另一个方案是使用LLM进行抽取
+    """
+    def __init__(self,model_name: str = "Davlan/bert-base-multilingual-cased-ner-hrl"):
+        self.pipe = _get_ner_pipeline(model_name)
+
+    def _sync_extract(self,query: str) -> list[dict]:
+        """
+        使用小模型对问题进行抽取，之后按照模型提取字段映射返回数据
+        """
+        row_result = self.pipe(query)
+        return [{"text": item["word"], "start": item["start"], "end": item["end"], "source": "Local_BERT"} for item in row_result]
+
+    async def extract(self,query: str) -> list[dict]:
+        """
+        利用asyncio.to_thread 将 CPU 密集型的 BERT 推理丢给线程池，
+        防止它在计算时阻塞 Python 的主事件循环，导致llm不执行。
+        """
+        return await asyncio.to_thread(self._sync_extract,query)
+        
+
+class LlmEntityExtractor:
+    """
+    使用LLM进行实体抽取
+    """
+    def __init__(self,llm: ChatOpenAI,config: RunnableConfig | None = None):
+        self.llm = llm
+        self.config = config 
+
+    NODE_TYPES = NODE_TYPES
+    REL_TYPES = REL_TYPES
+
+    @staticmethod
+    def _format_schema() -> tuple[str, str]:
+        """将 NODE_TYPES / REL_TYPES 格式化为 prompt 可用的描述文本。"""
+        node_desc = "\n".join(f"    - {k}：{v}" for k, v in NODE_TYPES.items())
+        rel_desc = "\n".join(f"    - {k}：{v}" for k, v in REL_TYPES.items())
+        return node_desc, rel_desc
+
+    def _build_extract_prompt(self, query: str) -> str:
+        """构建实体抽取 prompt，将图 Schema 约束嵌入其中。"""
+        node_desc, rel_desc = self._format_schema()
+
+        return f"""你是一个消防后勤领域的实体抽取专家。请从用户问题中提取与图数据库查询相关的关键实体和关系。
+
+## 用户问题
+{query}
+
+## 图数据库节点类型（仅限以下类型，不得自行编造）
+{node_desc}
+
+## 图数据库关系类型（仅限以下类型，不得自行编造）
+{rel_desc}
+
+## 抽取规则
+1. 仅提取问题中明确提及或可强推断的实体，不要臆造问题中未涉及的内容
+2. 每个实体的 type 必须是上述节点类型之一，无法确定时选最接近的
+3. 关系的 relation 必须是上述关系类型之一，且 source/target 的类型须与关系定义的方向一致
+4. 如果问题中无法提取出关系，relations 可返回空列表
+5. 不要输出与问题无关的实体
+
+## 返回格式
+请严格返回如下 JSON 格式，不要输出任何其他内容：
+```json
+{{
+  "entities": [{{"name": "实体名", "type": "节点类型"}}],
+  "relations": [{{"source": "源实体名", "target": "目标实体名", "relation": "关系类型"}}]
+}}
+```
+"""
+
+    async def extract(self,query: str) -> list:
+        """
+        利用 LLM 进行实体抽取，返回 ExtractResult（异步调用）。
+        """
+        try:
+            # 方式1：OpenAI structured output ,有些模型可能不支持
+            entily_llm = self.llm.with_structured_output(ExtractResult)
+            response = await entily_llm.ainvoke(self._build_extract_prompt(query), config=self.config)
+            entities_list = getattr(response, "entities", [])
+            return entities_list
+            
+
+        except Exception as e:
+            logger.error(f"实体抽取失败：{e}")
+            return []
+
+
+
+
+
+
 
 class EntityExtractor:
     def __init__(self, llm_client: ChatOpenAI, query: str, config: RunnableConfig | None = None,
