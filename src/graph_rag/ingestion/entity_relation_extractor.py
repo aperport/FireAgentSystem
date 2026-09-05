@@ -14,7 +14,7 @@ from typing import Optional
 
 from langchain_openai import ChatOpenAI
 
-from graph_rag.entity_extractor import Entity, EntityExtractor, ExtractResult
+from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.writer import Neo4jBatchWriter
 from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
 from util_tools.logger import get_logger
@@ -36,7 +36,7 @@ CLAUSE_PATTERNS: list[re.Pattern] = [
 
 # ===================== 文档模式实体抽取器 =====================
 
-class DocumentEntityExtractor(EntityExtractor):
+class DocumentEntityExtractor():
     """文档模式实体抽取器 — 覆盖 prompt 为文档抽取模式。
     """
 
@@ -225,7 +225,6 @@ def validate_extract_result(result: "ExtractResult") -> "ExtractResult":
     Returns:
         校验后的抽取结果（可能比输入少）
     """
-    
 
     valid_node_types = set(NODE_TYPES.keys())
     valid_rel_types = set(REL_TYPES.keys())
