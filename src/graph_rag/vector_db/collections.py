@@ -33,6 +33,10 @@ fire_image_collection 独有字段：
 待优化：
     - Embedding 配置外部化
     - 向量索引参数自适应（根据数据量选择 lists 数量或切换到 HNSW）
+    - 需要重构，抽离出三个模块PGVectorConnection（纯粹的数据连接层）、
+        VectorSchemaManager（DDL/运维层）：独立管理表结构、分类索引与 IVFFlat/HNSW 索引创建，按需调用。）
+        EmbeddingModelProvider（独立实例化的计算模型）
+    - 稀疏向量需要单一示例懒加载，有许多地方直接读取config新建了实例
 """
 
 from pgvector.psycopg2 import register_vector
@@ -120,6 +124,8 @@ ORDER BY id
 """
 
 # 加载全部文本（BM25 索引重建用）
+
+# 需要重构，PGV已支持稀疏向量存储，无需采用读取所有内容，在内存构建索引的方法
 LOAD_ALL_TEXT_SQL = """
 SELECT id, text, category, source_file, title
 FROM fire_doc_collection
@@ -127,12 +133,7 @@ ORDER BY id
 """
 
 
-# ──────────────── 数据库连接管理 ────────────────
-
-# [简化理由] 原先使用 __new__ + _instance 实现单例，增加了 __init__ 跳过逻辑
-# 和 _instance 管理的复杂度。当前项目只有一个 PG 实例，改为模块级全局变量
-# _pg_instance 持有唯一实例，由调用方通过 get_pg_instance() 获取。
-# 这样 PGVectorManager 本身保持为普通类，更易测试和理解。
+# ──────────────── 全局变量 ────────────────
 
 _pg_instance: "PGVectorManager | None" = None
 
@@ -190,7 +191,7 @@ class PGVectorManager:
         except Exception as e:
             logger.error(f"PostgreSQL 连接失败: {e}")
             raise
-    
+
     def _set_up_embeddings(self):
         """设置 embeddings 模型"""
         s = get_settings()
@@ -232,7 +233,8 @@ class PGVectorManager:
             logger.info("PostgreSQL 连接已关闭")
 
 
-def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int, model_name: str | None = None) -> PGVectorManager:
+def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int,
+                    model_name: str | None = None) -> PGVectorManager:
     """获取 PGVectorManager 全局单例（懒加载）。
 
     首次调用时创建实例，后续调用返回同一实例。

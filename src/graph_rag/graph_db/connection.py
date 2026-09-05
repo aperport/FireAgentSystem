@@ -38,24 +38,6 @@ from graph_rag.config import get_settings
 logger = get_logger(__name__)
 
 
-# 下面的数据类定义了 Neo4j 的节点和关系的数据结构，在查询时使用，与sql不同，图数据库更关注关系，而非字段，
-# 所以节点和关系的数据结构是不同的，查询时先找标签，再找属性，之后靠关系
-# @dataclass
-# class Graphnode:
-#     # Neo4j 节点数据结构
-#     node_id : str
-#     labels : str
-#     properties : dict[str,Any]
-#     name : str
-
-# @dataclass
-# class GraphRelation:
-#     """图关系数据结构"""
-#     start_node_id: str
-#     end_node_id: str
-#     relation_type: str
-#     properties: dict[str, Any]
-
 class Neo4jDrivers:
     """Neo4j 驱动（同时支持同步与异步 Session）
 
@@ -163,6 +145,7 @@ class Neo4jDrivers:
             self._async_driver = None
 
 
+# ──────────────── 全局实例 ────────────────
 @lru_cache
 def get_neo4j_driver() -> Neo4jDrivers:
     s = get_settings()

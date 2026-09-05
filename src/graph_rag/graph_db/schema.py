@@ -73,12 +73,12 @@ REL_TYPES = {
 
 # ── 系统操作子图 ──
 
+
 @dataclass
-class ModuleNode :
+class ModuleNode:
     """模块节点 — 系统功能模块（系统模块：值班、巡检等）"""
     name: str                                    # 模块名称（唯一标识）
     description: Optional[str] = None            # 模块描述
-
 
 
 @dataclass
@@ -88,6 +88,7 @@ class FunctionNode:
     module_name: str                             # 所属模块名称
     description: Optional[str] = None            # 功能描述
 
+
 @dataclass
 class StepNode:
     """步骤节点 — 功能的操作步骤（）"""
@@ -95,6 +96,7 @@ class StepNode:
     step_order: int                              # 步骤顺序
     function_name: str                           # 所属功能名称
     description: Optional[str] = None            # 步骤描述
+
 
 @dataclass
 class RequirementNode:
@@ -113,12 +115,14 @@ class RegulationNode:
     code: Optional[str] = None                   # 法规编号（如：GB50016-2014）
     description: Optional[str] = None            # 法规描述
 
+
 @dataclass
 class ClauseNode:
     """条款节点 — 法规中的具体条款（如：第5.1.1条）"""
     name: str                                    # 条款号（如：第5.1.1条）
     content: Optional[str] = None                # 条款内容
     regulation_name: Optional[str] = None        # 所属法规名称
+
 
 @dataclass
 class StandardNode:
@@ -136,6 +140,7 @@ class ZoneTypeNode:
     name: str                                    # 区域类型名称
     risk_level: Optional[str] = None             # 风险等级
     description: Optional[str] = None            # 类型描述
+
 
 @dataclass
 class EquipmentTypeNode:
@@ -156,6 +161,7 @@ class EquipmentNode:
     install_date: Optional[str] = None           # 安装日期
     status: Optional[str] = None                 # 设备状态（正常/故障/停用）
 
+
 @dataclass
 class ZoneNode:
     """区域实例节点 — 建筑分区（来自业务数据库同步）"""
@@ -173,5 +179,3 @@ class ZoneNode:
 # 原因：writer.py 的 _build_merge_rel_cypher() 直接从 REL_TYPES 字典生成 Cypher，
 # 不读取这些 dataclass。它们在整个代码库中无任何引用方，属于死代码。
 # 关系的结构约束已由 REL_TYPES 字典和 validate_extract_result() 充分表达。
-
-
