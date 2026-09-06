@@ -13,15 +13,18 @@ GraphRAG 查询编排器 — 整个 GraphRAG Pipeline 的核心入口。
 由 MCP Tool (knowledge_tools.py 中的 graph_rag_search) 调用。
 
 """
+import asyncio
 import sys, os
 import threading
+
+from src.graph_rag.entity_extractor import DocumentGraphExtractionPipeline, ExtractResult
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langchain_core.language_models import BaseChatModel
 from graph_rag.config import get_settings
 from graph_rag.context_fusion import ContextFusionModule
-from graph_rag.entity_extractor import EntityExtractor
+
 from graph_rag.graph_traverser import GraphTraverser
 from graph_rag.json_save import append_json_item
 from graph_rag.vector_db.collections import get_pg_instance
@@ -93,48 +96,42 @@ class _BM25Index:
 
 # ===================== 全局单例：Neo4j 驱动 =====================
 
-class _Neo4jDriver:
-    """Neo4j 驱动全局单例。"""
-    _instance: GraphTraverser | None = None
 
-    @classmethod
-    def get(cls, llm: BaseChatModel | None = None) -> GraphTraverser:
-        if cls._instance is None:
-            _llm = llm or _get_llm()
-            cls._instance = GraphTraverser(extract_result=None, llm=_llm)
-            logger.info("Neo4j GraphTraverser 全局单例构建完成")
-        return cls._instance
 
 
 class GraphRAGOrchestrator:
-    def __init__(self, query: str, llm: BaseChatModel | None = None):
-        self.query = query
-        self.llm = llm or _get_llm()
+    def __init__(self, graph_traverser: GraphTraverser, doc_extraction:DocumentGraphExtractionPipeline, context_fusion: ContextFusionModule, vector_retriever: VectorRetriever):
         self.retrieval_module = _BM25Index.get()
+        self.graph_traverser = graph_traverser
+        self.doc_extraction = doc_extraction
+        self.context_fusion = context_fusion
+        self.vector_retriever = vector_retriever
 
-    async def rag_search(self,top_k=5):
+    async def rag_search(self, query: str, top_k=5):
         # 1. 对问题进行实体抽取
-        entityExtractor = EntityExtractor(llm_client=self.llm,query=self.query)
-        entity_result = await entityExtractor.main_pip()
-
+        entity_result = await self.doc_extraction.extract(query)
         # 2. 对实体进行向量检索与图遍历
         # 2.1 向量检索
-
-        vectorRetriever = VectorRetriever(retrieval_module=self.retrieval_module)
-        vector_result = await vectorRetriever.search(query=self.query,top_k=top_k)
+        vector_task = self.vector_retriever.search(query=query,top_k=top_k)
 
         # 2.2 图遍历
-        graph_traverser = _Neo4jDriver.get(llm=self.llm)
-        graph_traverser.extract_result = entity_result
-        graph_result = await graph_traverser.traverse()
+        async def _graph_traverser():
+            if  isinstance(entity_result, ExtractResult):
+                return  await self.graph_traverser.traverse(entity_result)
+            else:
+                logger.info("提取的类型不正确")
+            return   []
 
+        graph_task =  _graph_traverser()
+
+        # 前面创建协程，不要加await，此处使用asyncio.gather并发执行两方法
+        vector_result, graph_result = await asyncio.gather(vector_task, graph_task)
         # 3. 对检索结果进行去重融合
-        context_fusion_module = ContextFusionModule(parent_map=self.retrieval_module.parent_map)
-        result = await context_fusion_module.fuse(vector_docs=vector_result, graph_records=graph_result)
+        result = await self.context_fusion.fuse(vector_docs=vector_result, graph_records=graph_result) # type: ignore
 
-        # 4. 将答案存入json
+        # 4. 将答案存入json，model_dump是pydantic的方法，会将这个类的属性转换成字典
         Data = {
-            "query": self.query,
+            "query": query,
             "entity_result": entity_result.model_dump() if hasattr(entity_result, "model_dump") else str(entity_result),
             "vector_result": [doc.model_dump() if hasattr(doc, "model_dump") else {"page_content": doc.page_content, "metadata": doc.metadata} for doc in vector_result],
             "graph_result": graph_result,
@@ -145,9 +142,3 @@ class GraphRAGOrchestrator:
         return result
 
 
-# [删除理由] 以下代码已删除：
-# 1. main() + if __name__ == "__main__": 测试入口 — 生产代码不应包含模块级测试，
-#    测试应放在 src/test/ 目录下，通过 pytest 运行。
-# 2. GraphQuery / VectorQuery 类 — 与 GraphRAGOrchestrator.rag_search() 逻辑重复，
-#    GraphRAGOrchestrator 已整合了图遍历和向量检索，这两个独立类无额外价值。
-#    如需单独查询，knowledge_tools.py 已改为直接调用底层 VectorRetriever / GraphTraverser。

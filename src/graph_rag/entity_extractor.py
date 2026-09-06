@@ -199,7 +199,7 @@ class EntityFusionService:
 
     def fuse_entities(
             self,
-            llm_result: list,
+            llm_result: ExtractResult | None,
             ner_result: list,
             threshold: float = 0.5) -> ExtractResult:
         """
@@ -231,25 +231,35 @@ class EntityFusionService:
         return ExtractResult(entities=merged_entities, relations=getattr(llm_result, "relations", []))
 
 
-async def main_pip():
-    """
-    业务编排
-    """
-    start_time = time.time()
-    # 1. 并发创建两个任务
-    llm_task = asyncio.create_task(entity_extract_llm())
-    ner_task = asyncio.create_task(predict())
 
-    # 2. 聚合等待，并对大模型设置 6.0 秒的硬超时防死锁
-    llm_result: ExtractResult | None = None
-    try:
-        llm_result = await asyncio.wait_for(llm_task, timeout=6.0)  # type: ignore[assignment]
-    except asyncio.TimeoutError:
-        logger.warning("LLM 推理超时")
-    ner_list = await ner_task
 
-    # 3. 融合结果
-    result = merge_results(llm_result, ner_list)
-    end_time = time.time()
-    logger.info("总耗时:%.2f秒", end_time - start_time)
-    return result
+class DocumentGraphExtractionPipeline:
+    def __init__(self, llm_entity: LlmEntityExtractor, ner_entity: NerEntityExtractor, entity_fusion_service: EntityFusionService) -> None:
+        self.llm_entity = llm_entity
+        self.ner_entity = ner_entity
+        self.entity_fusion_service = entity_fusion_service
+    async def extract(self,query: str) -> ExtractResult:
+        """
+        业务编排,
+        1. 并发创建两个任务
+        2. 聚合等待，并对大模型设置 6.0 秒的硬超时防死锁
+        3. 融合结果
+        """
+        start_time = time.time()
+        # 1. 并发创建两个任务
+        llm_task = asyncio.create_task(self.llm_entity.extract(query))
+        ner_task = asyncio.create_task(self.ner_entity.extract(query))
+
+        # 2. 聚合等待，并对大模型设置 6.0 秒的硬超时防死锁
+        llm_result: ExtractResult | None = None
+        try:
+            llm_result = await asyncio.wait_for(llm_task, timeout=6.0)  # type: ignore[assignment]
+        except asyncio.TimeoutError:
+            logger.warning("LLM 推理超时")
+        ner_list = await ner_task
+
+        # 3. 融合结果
+        result = self.entity_fusion_service.fuse_entities(llm_result, ner_list)
+        end_time = time.time()
+        logger.info("总耗时:%.2f秒", end_time - start_time)
+        return result

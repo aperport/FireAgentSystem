@@ -2,16 +2,12 @@
 
 
 from dataclasses import dataclass
-from typing import Optional
-
-from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
-
 from graph_rag.graph_db.writer import Neo4jBatchWriter
-from graph_rag.ingestion.doc_parser.md_parser import MdParser, Normalize
-from graph_rag.ingestion.entity_relation_extractor import extract_and_write_document
+from graph_rag.ingestion.doc_parser.md_parser import MdParser
 from graph_rag.ingestion.splitter import split
 from graph_rag.vector_db.db_operator import DBOperator
+from src.graph_rag.ingestion.entity_relation_extractor import DocumentGraphPipeline
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,8 +33,8 @@ class IngestResult:
 async def ingest_markdown(
     file_path: str,
     md_parser: MdParser,
-    llm_client: ChatOpenAI,
-    writer: Neo4jBatchWriter | None = None,
+    doc_writer: DocumentGraphPipeline
+
 ) -> IngestResult:
     """将单个 Markdown 文件完整入库（PG 向量 + Neo4j 图谱）。
 
@@ -49,8 +45,7 @@ async def ingest_markdown(
         llm_client: LLM 客户端，必须由调用方注入
         writer: Neo4j 批量写入器，None 则自动创建
     """
-    if llm_client is None:
-        raise ValueError("llm_client 不能为空，请由调用方注入 LLM 实例")
+
 
     try:
         # 1. 解析
@@ -71,11 +66,9 @@ async def ingest_markdown(
         paragraphs = [c.page_content for c in text_chunks]
         contexts = [c.metadata.get("header_chain") for c in text_chunks]
 
-        neo4j_writer = writer or Neo4jBatchWriter()
-        extract_results = await extract_and_write_document(
+
+        extract_results = await doc_writer.process_document(
             paragraphs=paragraphs,
-            llm_client=llm_client,
-            writer=neo4j_writer,
             contexts=contexts,
         )
 
@@ -103,7 +96,7 @@ async def ingest_markdown(
 async def ingest_directory(
     dir_path: str,
     md_parser: MdParser,
-    llm_client: ChatOpenAI,
+    doc_writer: DocumentGraphPipeline
 ) -> list[IngestResult]:
     """将目录下所有 Markdown 文件批量入库。
 
@@ -113,10 +106,7 @@ async def ingest_directory(
         dir_path: 目录路径
         llm_client: LLM 客户端，必须由调用方注入
     """
-    if llm_client is None:
-        raise ValueError("llm_client 不能为空，请由调用方注入 LLM 实例")
 
-    writer = Neo4jBatchWriter()
     parsed_docs = md_parser.parse_directory(dir_path)
 
     results: list[IngestResult] = []
@@ -134,10 +124,8 @@ async def ingest_directory(
             paragraphs = [c.page_content for c in text_chunks]
             contexts = [c.metadata.get("header_chain") for c in text_chunks]
 
-            extract_results = await extract_and_write_document(
+            extract_results = await doc_writer.process_document(
                 paragraphs=paragraphs,
-                llm_client=llm_client,
-                writer=writer,
                 contexts=contexts,
             )
 

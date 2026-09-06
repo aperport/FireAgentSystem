@@ -21,6 +21,7 @@
 """
 import asyncio
 import hashlib
+from typing import Any
 from langchain_core.documents import Document
 from util_tools.logger import get_logger
 
@@ -450,7 +451,7 @@ class ContextFusionModule:
     async def fuse(
         self,
         vector_docs: list[Document],
-        graph_records: list[dict] | None,
+        graph_records: list[Any] | None,
         token_budget: int = 0,
         parent_top_n: int = 3,
         graph_hop_count: int = 1,

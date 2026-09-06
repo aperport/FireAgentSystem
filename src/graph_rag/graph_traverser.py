@@ -46,22 +46,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
-from graph_rag.graph_db.connection import Neo4jDrivers
+from graph_rag.graph_db.connection import Neo4jDrivers, get_neo4j_driver
 from graph_rag.graph_db.queries import GraphQueries
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
-_N4JD: Neo4jDrivers | None = None
 
-
-def get_neo4j_driver() -> Neo4jDrivers:
-    """进程级 Neo4j 驱动单例（线程安全，懒加载）。"""
-    global _N4JD
-    if _N4JD is None:
-        s = get_settings()
-        _N4JD = Neo4jDrivers(s.neo4j_uri, s.neo4j_user, s.neo4j_password, s.neo4j_database)
-    return _N4JD
 class GraphTraverser:
     """
         遍历图谱，获取关联上下文,根据提取的关键词，采取逐层降级检索的方式
@@ -71,14 +62,14 @@ class GraphTraverser:
         4. 若实在未找到，那么返回空，并提示未找到数据
         5. 中间查询到type后，回填如类型，可能后续有用。
     """
-    def __init__(self,extract_result:ExtractResult,Neo4jDriver:Neo4jDrivers|None=None,llm:BaseChatModel|None=None):
+    def __init__(self,Neo4jDriver:Neo4jDrivers|None=None,llm:BaseChatModel|None=None):
         self.Neo4jDriver = Neo4jDriver or get_neo4j_driver()
-        self.extract_result = extract_result
         self.llm = llm
 
-    async def traverse(self):
+    async def traverse(self, extract_result: ExtractResult):
+
       a_driver = await self.Neo4jDriver._get_async_driver()
-      for entitie in self.extract_result.entities:
+      for entitie in getattr(extract_result, "entities", [] ):
          if not entitie:
             logger.info("提取结果为空，跳过该实体")
             continue
