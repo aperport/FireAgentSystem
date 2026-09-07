@@ -27,10 +27,16 @@ from fastmcp import FastMCP
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # [修改] 不再导入已删除的 VectorQuery / GraphQuery，改为直接使用底层组件
-from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, _Neo4jDriver, set_llm
-from graph_rag.entity_extractor import EntityExtractor, _get_ner_pipeline
-from graph_rag.vector_retriever import VectorRetriever
+from graph_rag.context_fusion import ContextFusionModule
+from graph_rag.entity_extractor import (
+    DocumentGraphExtractionPipeline,
+    EntityFusionService,
+    LlmEntityExtractor,
+    NerEntityExtractor,
+)
 from graph_rag.graph_traverser import GraphTraverser
+from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, set_llm
+from graph_rag.vector_retriever import VectorRetriever
 from agent.llm_config import DeepSeek_LLM
 from util_tools.logger import get_logger
 
@@ -38,15 +44,30 @@ logger = get_logger(__name__)
 
 set_llm(DeepSeek_LLM)
 
-_ENTITY_EXTRACTOR: EntityExtractor | None = None
+_EXTRACTION_PIPELINE: DocumentGraphExtractionPipeline | None = None
 
 
-def _get_entity_extractor() -> EntityExtractor:
-    """EntityExtractor 单例（NER 模型只加载一次）。"""
-    global _ENTITY_EXTRACTOR
-    if _ENTITY_EXTRACTOR is None:
-        _ENTITY_EXTRACTOR = EntityExtractor(llm_client=DeepSeek_LLM, query="")
-    return _ENTITY_EXTRACTOR
+def _get_extraction_pipeline() -> DocumentGraphExtractionPipeline:
+    """实体抽取流水线单例（NER 模型只加载一次）。"""
+    global _EXTRACTION_PIPELINE
+    if _EXTRACTION_PIPELINE is None:
+        _EXTRACTION_PIPELINE = DocumentGraphExtractionPipeline(
+            llm_entity=LlmEntityExtractor(llm=DeepSeek_LLM),
+            ner_entity=NerEntityExtractor(),
+            entity_fusion_service=EntityFusionService(),
+        )
+    return _EXTRACTION_PIPELINE
+
+
+def _build_orchestrator() -> GraphRAGOrchestrator:
+    """组装 GraphRAG 编排器：各组件在此统一注入。"""
+    retrieval_module = _BM25Index.get()
+    return GraphRAGOrchestrator(
+        graph_traverser=GraphTraverser(llm=DeepSeek_LLM),
+        doc_extraction=_get_extraction_pipeline(),
+        context_fusion=ContextFusionModule(parent_map=retrieval_module.parent_map),
+        vector_retriever=VectorRetriever(retrieval_module=retrieval_module),
+    )
 
 
 def register_knowledge_tools(mcp: FastMCP):
@@ -69,8 +90,8 @@ def register_knowledge_tools(mcp: FastMCP):
         """
         logger.info("graph_rag_search 调用: query=%s", query)
         try:
-            orchestrator = GraphRAGOrchestrator(query=query)
-            result = await orchestrator.rag_search(top_k=top_k)
+            orchestrator = _build_orchestrator()
+            result = await orchestrator.rag_search(query=query, top_k=top_k)
             logger.info("graph_rag_search 完成: %d 条结果", len(result))
             return {
                 "answer": "\n\n".join([doc.page_content for doc in result[:3]]),
@@ -154,13 +175,9 @@ def register_knowledge_tools(mcp: FastMCP):
         """
         logger.info("graph_query 调用: entity=%s", entity)
         try:
-            # [修改] 复用全局 EntityExtractor 单例，NER 模型只加载一次
-            extractor = _get_entity_extractor()
-            extractor.query = entity
-            entity_result = await extractor.main_pip()
-            graph_traverser = _Neo4jDriver.get()
-            graph_traverser.extract_result = entity_result
-            result = await graph_traverser.traverse()
+            # [修改] 复用全局抽取流水线单例，NER 模型只加载一次
+            entity_result = await _get_extraction_pipeline().extract(entity)
+            result = await GraphTraverser(llm=DeepSeek_LLM).traverse(entity_result)
             logger.info("graph_query 完成: %d 条路径", len(result))
             return {
                 "paths": result,

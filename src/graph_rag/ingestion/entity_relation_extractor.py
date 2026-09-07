@@ -11,8 +11,8 @@
 
 import asyncio
 
-from src.graph_rag.entity_extractor import DocumentGraphExtractionPipeline,ExtractResult, LlmEntityExtractor
-from src.graph_rag.graph_db.writer import Neo4jBatchWriter
+from graph_rag.entity_extractor import DocumentGraphExtractionPipeline, ExtractResult, LlmEntityExtractor
+from graph_rag.graph_db.writer import Neo4jBatchWriter
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 
 class LlmEntityExtractorByDOC(LlmEntityExtractor):
-    def _build_extract_prompt(self, paragraph: str,context: str) -> str:
+    def _build_extract_prompt(self, paragraph: str, context: str | None = None) -> str:
         """
         构建实体抽取 prompt，将图 Schema 约束嵌入其中。
         此处提示词需要修改
@@ -28,7 +28,7 @@ class LlmEntityExtractorByDOC(LlmEntityExtractor):
         node_desc, rel_desc = self._format_schema()
         context_section = ""
         if context:
-                    context_section = f"""
+            context_section = f"""
         ## 段落上下文
         该段落位于文档的以下层级中：{context}
         请结合上下文理解段落内容，正确识别实体所属的模块/范畴。
@@ -76,7 +76,7 @@ class DocumentGraphPipeline:
         """
         抽取实体和关系，写入 Neo4j
         """
-        result = await self.extraction_pipeline.extract(paragraph)
+        result = await self.extraction_pipeline.extract(paragraph, context=context)
 
         # 类型关系校验 提示词要求选择已有关系，但依然可能捏造，所以进行一步校验（）
 

@@ -17,13 +17,12 @@ import asyncio
 import sys, os
 import threading
 
-from src.graph_rag.entity_extractor import DocumentGraphExtractionPipeline, ExtractResult
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langchain_core.language_models import BaseChatModel
 from graph_rag.config import get_settings
 from graph_rag.context_fusion import ContextFusionModule
+from graph_rag.entity_extractor import DocumentGraphExtractionPipeline, ExtractResult
 
 from graph_rag.graph_traverser import GraphTraverser
 from graph_rag.json_save import append_json_item

@@ -100,7 +100,7 @@ class LlmEntityExtractor:
         rel_desc = "\n".join(f"    - {k}：{v}" for k, v in REL_TYPES.items())
         return node_desc, rel_desc
 
-    def _build_extract_prompt(self, query: str) -> str:
+    def _build_extract_prompt(self, query: str, context: str | None = None) -> str:
         """构建实体抽取 prompt，将图 Schema 约束嵌入其中。"""
         node_desc, rel_desc = self._format_schema()
 
@@ -132,31 +132,31 @@ class LlmEntityExtractor:
     ```
     """
 
-    async def extract(self, query: str) -> ExtractResult | None:
+    async def extract(self, query: str, context: str | None = None) -> ExtractResult | None:
         """
         利用 LLM 进行实体抽取，返回 ExtractResult（异步调用）,为防止模型不支持openAI格式化，使用两种方式。
         """
         try:
-            async def _openai_structured_output(query: str) -> ExtractResult | None:
+            async def _openai_structured_output() -> ExtractResult | None:
                 # 方式1：OpenAI structured output ,有些模型可能不支持
                 entily_llm = self.llm.with_structured_output(ExtractResult)
-                response = await entily_llm.ainvoke(self._build_extract_prompt(query), config=self.config)
+                response = await entily_llm.ainvoke(self._build_extract_prompt(query, context), config=self.config)
                 if isinstance(response, ExtractResult):
                     return response
                 response = None
                 return response
 
-            async def _general_output(query: str) -> ExtractResult | None:
+            async def _general_output() -> ExtractResult | None:
                 # 方式2，通用输出格式化，
-                response = await self.llm.ainvoke(query, config=self.config, response_format=ExtractResult)
+                response = await self.llm.ainvoke(self._build_extract_prompt(query, context), config=self.config, response_format=ExtractResult)
                 if isinstance(response, ExtractResult):
                     return response
                 response = None
                 return response
 
-            extract_result = await _openai_structured_output(query)
+            extract_result = await _openai_structured_output()
             if not extract_result:
-                extract_result = await _general_output(query)
+                extract_result = await _general_output()
             return extract_result
 
         except Exception as e:
@@ -238,7 +238,7 @@ class DocumentGraphExtractionPipeline:
         self.llm_entity = llm_entity
         self.ner_entity = ner_entity
         self.entity_fusion_service = entity_fusion_service
-    async def extract(self,query: str) -> ExtractResult:
+    async def extract(self,query: str, context: str | None = None) -> ExtractResult:
         """
         业务编排,
         1. 并发创建两个任务
@@ -247,7 +247,7 @@ class DocumentGraphExtractionPipeline:
         """
         start_time = time.time()
         # 1. 并发创建两个任务
-        llm_task = asyncio.create_task(self.llm_entity.extract(query))
+        llm_task = asyncio.create_task(self.llm_entity.extract(query, context))
         ner_task = asyncio.create_task(self.ner_entity.extract(query))
 
         # 2. 聚合等待，并对大模型设置 6.0 秒的硬超时防死锁

@@ -2,12 +2,10 @@
 
 
 from dataclasses import dataclass
-from langchain_openai import ChatOpenAI
-from graph_rag.graph_db.writer import Neo4jBatchWriter
 from graph_rag.ingestion.doc_parser.md_parser import MdParser
 from graph_rag.ingestion.splitter import split
 from graph_rag.vector_db.db_operator import DBOperator
-from src.graph_rag.ingestion.entity_relation_extractor import DocumentGraphPipeline
+from graph_rag.ingestion.entity_relation_extractor import DocumentGraphPipeline
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,8 +40,8 @@ async def ingest_markdown(
 
     Args:
         file_path: Markdown 文件路径
-        llm_client: LLM 客户端，必须由调用方注入
-        writer: Neo4j 批量写入器，None 则自动创建
+        md_parser: Markdown 解析器，由调用方注入
+        doc_writer: 文档图数据抽取与写入流水线，由调用方注入
     """
 
 
@@ -100,11 +98,12 @@ async def ingest_directory(
 ) -> list[IngestResult]:
     """将目录下所有 Markdown 文件批量入库。
 
-    复用同一个 LLM 客户端和 Neo4j 写入器，避免重复初始化。
+    复用同一个解析器和写入流水线，避免重复初始化。
 
     Args:
         dir_path: 目录路径
-        llm_client: LLM 客户端，必须由调用方注入
+        md_parser: Markdown 解析器，由调用方注入
+        doc_writer: 文档图数据抽取与写入流水线，由调用方注入
     """
 
     parsed_docs = md_parser.parse_directory(dir_path)
