@@ -1,11 +1,11 @@
 """将文档完整入库（PG 向量 + Neo4j 图谱）。"""
 
-
 from dataclasses import dataclass
+
 from graph_rag.ingestion.doc_parser.md_parser import MdParser
+from graph_rag.ingestion.entity_relation_extractor import DocumentGraphPipeline
 from graph_rag.ingestion.splitter import split
 from graph_rag.vector_db.db_operator import DBOperator
-from graph_rag.ingestion.entity_relation_extractor import DocumentGraphPipeline
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -13,9 +13,11 @@ logger = get_logger(__name__)
 
 # ─── 入库结果 ───
 
+
 @dataclass
 class IngestResult:
     """单个文档的入库结果。"""
+
     file_path: str
     success: bool
     text_chunks: int = 0
@@ -28,12 +30,7 @@ class IngestResult:
 #  ─── 顶层编排 ───
 
 
-async def ingest_markdown(
-    file_path: str,
-    md_parser: MdParser,
-    doc_writer: DocumentGraphPipeline
-
-) -> IngestResult:
+async def ingest_markdown(file_path: str, md_parser: MdParser, doc_writer: DocumentGraphPipeline) -> IngestResult:
     """将单个 Markdown 文件完整入库（PG 向量 + Neo4j 图谱）。
 
     自动执行：解析 → 切分 → PG写入 → 实体抽取 → Neo4j写入
@@ -43,7 +40,6 @@ async def ingest_markdown(
         md_parser: Markdown 解析器，由调用方注入
         doc_writer: 文档图数据抽取与写入流水线，由调用方注入
     """
-
 
     try:
         # 1. 解析
@@ -63,7 +59,6 @@ async def ingest_markdown(
         # ponytail: 用 text_chunks 的 page_content 作为段落，保留 header_chain 上下文
         paragraphs = [c.page_content for c in text_chunks]
         contexts = [c.metadata.get("header_chain") for c in text_chunks]
-
 
         extract_results = await doc_writer.process_document(
             paragraphs=paragraphs,
@@ -91,11 +86,7 @@ async def ingest_markdown(
         return IngestResult(file_path=file_path, success=False, error=str(e))
 
 
-async def ingest_directory(
-    dir_path: str,
-    md_parser: MdParser,
-    doc_writer: DocumentGraphPipeline
-) -> list[IngestResult]:
+async def ingest_directory(dir_path: str, md_parser: MdParser, doc_writer: DocumentGraphPipeline) -> list[IngestResult]:
     """将目录下所有 Markdown 文件批量入库。
 
     复用同一个解析器和写入流水线，避免重复初始化。
@@ -131,11 +122,16 @@ async def ingest_directory(
             total_entities = sum(len(r.entities) for r in extract_results)
             total_relations = sum(len(r.relations) for r in extract_results)
 
-            results.append(IngestResult(
-                file_path=file_path, success=True,
-                text_chunks=len(text_chunks), image_docs=len(image_docs),
-                entities=total_entities, relations=total_relations,
-            ))
+            results.append(
+                IngestResult(
+                    file_path=file_path,
+                    success=True,
+                    text_chunks=len(text_chunks),
+                    image_docs=len(image_docs),
+                    entities=total_entities,
+                    relations=total_relations,
+                )
+            )
 
         except Exception as e:
             logger.error(f"入库失败: {file_path}: {e}")

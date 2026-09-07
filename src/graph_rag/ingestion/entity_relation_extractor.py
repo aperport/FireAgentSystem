@@ -1,7 +1,7 @@
 """
 实体/关系抽取模块 — 从文档段落中抽取实体和关系写入 Neo4j。
 
-抽取方式：LLM 结构化输出 + NER 小模型补充 
+抽取方式：LLM 结构化输出 + NER 小模型补充
 
 写入和校验复用 graph_db 子模块：
     - Neo4jBatchWriter / MERGE 模板 → graph_db.writer
@@ -16,7 +16,6 @@ from graph_rag.graph_db.writer import Neo4jBatchWriter
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-
 
 
 class LlmEntityExtractorByDOC(LlmEntityExtractor):
@@ -67,11 +66,10 @@ class DocumentGraphPipeline:
     负责：LLM+NER并发 -> 规则补充 -> Schema过滤 -> 属性组装 -> Neo4j持久化。
     """
 
-    def __init__(self, extraction_pipeline: DocumentGraphExtractionPipeline,
-                 writer: Neo4jBatchWriter) -> None:
+    def __init__(self, extraction_pipeline: DocumentGraphExtractionPipeline, writer: Neo4jBatchWriter) -> None:
         self.writer = writer
         self.extraction_pipeline = extraction_pipeline
-        
+
     async def process_paragraph(self, paragraph: str, context: str | None = None) -> ExtractResult:
         """
         抽取实体和关系，写入 Neo4j
@@ -80,15 +78,14 @@ class DocumentGraphPipeline:
 
         # 类型关系校验 提示词要求选择已有关系，但依然可能捏造，所以进行一步校验（）
 
-
         # 写入neo4j
-        
+
         if getattr(result, "entities", []):
             await self.writer.write_nodes(result.entities)
         if getattr(result, "relations", []):
             await self.writer.write_relations(result.relations)
         return result
-    
+
     async def process_document(
         self,
         paragraphs: list[str],
@@ -107,7 +104,13 @@ class DocumentGraphPipeline:
             async with sem:
                 try:
                     res = await self.process_paragraph(p, context=ctx)
-                    logger.info("段落 %d/%d 处理成功: 实体=%d, 关系=%d", idx + 1, len(paragraphs), len(res.entities), len(res.relations))
+                    logger.info(
+                        "段落 %d/%d 处理成功: 实体=%d, 关系=%d",
+                        idx + 1,
+                        len(paragraphs),
+                        len(res.entities),
+                        len(res.relations),
+                    )
                     return res
                 except Exception as e:
                     logger.error("段落 %d/%d 处理异常: %s", idx + 1, len(paragraphs), e)
@@ -118,5 +121,7 @@ class DocumentGraphPipeline:
 
         total_entities = sum(len(r.entities) for r in results)
         total_relations = sum(len(r.relations) for r in results)
-        logger.info("文档全量写入完毕: 共 %d 个段落, 写入 %d 实体, %d 关系", len(paragraphs), total_entities, total_relations)
+        logger.info(
+            "文档全量写入完毕: 共 %d 个段落, 写入 %d 实体, %d 关系", len(paragraphs), total_entities, total_relations
+        )
         return list(results)

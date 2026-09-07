@@ -24,8 +24,8 @@
     - 增加写入去重：相同 source_file + title 的文档不重复写入
 """
 
-import os
 from langchain_core.documents import Document
+
 from graph_rag.config import get_settings
 from graph_rag.vector_db.collections import PGVectorManager, get_pg_instance
 from util_tools.logger import get_logger
@@ -45,9 +45,7 @@ class DBOperator:
         if self._pg is None:
             s = get_settings()
             if not s.pg_password:
-                raise ValueError(
-                    "PG_PASSWORD 环境变量未设置，请在 .env 中配置 PostgreSQL 密码"
-                )
+                raise ValueError("PG_PASSWORD 环境变量未设置，请在 .env 中配置 PostgreSQL 密码")
             self._pg = get_pg_instance(
                 host=s.pg_host,
                 user=s.pg_user,

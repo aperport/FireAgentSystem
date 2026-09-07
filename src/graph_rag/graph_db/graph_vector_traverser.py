@@ -22,10 +22,10 @@
 
 from typing import Protocol
 
-import numpy as np
 from langchain_core.embeddings import Embeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 from neo4j import AsyncDriver
+import numpy as np
 
 from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
@@ -60,21 +60,15 @@ _REL_CONNECTOR = {
 
 
 class GraphPathTraverserProtocol(Protocol):
-
-    async def two_hop_traverse(self, extract_result: ExtractResult):
-        ...
+    async def two_hop_traverse(self, extract_result: ExtractResult): ...
 
 
 class PathTextFormatterProtocol(Protocol):
-
-    def paths_to_texts(self, paths):
-        ...
+    def paths_to_texts(self, paths): ...
 
 
 class VectorRerankerProtocol(Protocol):
-
-    def rank_by_similarity(self, query: str, subgraph_texts: list[dict]):
-        ...
+    def rank_by_similarity(self, query: str, subgraph_texts: list[dict]): ...
 
 
 class SubGraphResult:
@@ -98,10 +92,11 @@ class GraphVectorTraverser:
     """
 
     def __init__(
-            self,
-            graph_path_traverser: GraphPathTraverserProtocol,
-            path_text_formatter: PathTextFormatterProtocol,
-            vector_reranker_protocol: VectorRerankerProtocol):
+        self,
+        graph_path_traverser: GraphPathTraverserProtocol,
+        path_text_formatter: PathTextFormatterProtocol,
+        vector_reranker_protocol: VectorRerankerProtocol,
+    ):
 
         self.graph_path_traverser = graph_path_traverser
         self.path_text_formatter = path_text_formatter
@@ -159,18 +154,19 @@ class PathTextFormatter:
                 continue
             seen_texts.add(text)
 
-            results.append({
-                "text": text,
-                "path": path,
-                "entity_name": entity_name,
-            })
+            results.append(
+                {
+                    "text": text,
+                    "path": path,
+                    "entity_name": entity_name,
+                }
+            )
 
         logger.info("子图文本化完成，去重后 %d 条", len(results))
         return results
 
 
 class VectorReranker:
-
     def __init__(self, embedder: Embeddings | None = None, top_k: int = 5, score_threshold: float = 0.3):
         """
         args:
@@ -182,9 +178,11 @@ class VectorReranker:
         s = get_settings()
         self.top_k = top_k
         self.score_threshold = score_threshold
-        self.embedder = embedder or HuggingFaceEmbeddings(model_name=s.embedding_model_name,
-                                                          model_kwargs={"device": s.embedding_device},
-                                                          encode_kwargs={"normalize_embeddings": True})
+        self.embedder = embedder or HuggingFaceEmbeddings(
+            model_name=s.embedding_model_name,
+            model_kwargs={"device": s.embedding_device},
+            encode_kwargs={"normalize_embeddings": True},
+        )
 
     def rank_by_similarity(self, query: str, subgraph_texts: list[dict]) -> list[SubGraphResult]:
         """
@@ -215,16 +213,18 @@ class VectorReranker:
                 score = float(np.dot(query_vec, doc_arr) / norm_product)
 
             if score >= self.score_threshold:
-                results.append(SubGraphResult(
-                    text=item["text"],
-                    score=score,
-                    path=item["path"],
-                    entity_name=item["entity_name"],
-                ))
+                results.append(
+                    SubGraphResult(
+                        text=item["text"],
+                        score=score,
+                        path=item["path"],
+                        entity_name=item["entity_name"],
+                    )
+                )
 
         # 按相似度降序排列，取 Top-K
         results.sort(key=lambda r: r.score, reverse=True)
-        results = results[:self.top_k]
+        results = results[: self.top_k]
 
         logger.info("向量精排完成，%d 条结果超过阈值 %.2f，取 Top-%d", len(results), self.score_threshold, self.top_k)
         return results
@@ -256,13 +256,15 @@ class GraphPathTraverser:
             rel_types = record.get("rel_types", [])
             if start_node is None or end_node is None:
                 continue
-            paths.append({
-                "entity_name": entity.name,
-                "entity_type": entity.type,
-                "start": dict(start_node) if start_node else {},
-                "end": dict(end_node) if end_node else {},
-                "rel_types": rel_types,
-            })
+            paths.append(
+                {
+                    "entity_name": entity.name,
+                    "entity_type": entity.type,
+                    "start": dict(start_node) if start_node else {},
+                    "end": dict(end_node) if end_node else {},
+                    "rel_types": rel_types,
+                }
+            )
         logger.debug("实体 %s 遍历到 %d 条路径", entity.name, len(paths))
         return paths
 

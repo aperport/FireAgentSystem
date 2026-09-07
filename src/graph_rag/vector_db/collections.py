@@ -39,13 +39,13 @@ fire_image_collection 独有字段：
     - 稀疏向量需要单一示例懒加载，有许多地方直接读取config新建了实例
 """
 
-from pgvector.psycopg2 import register_vector
-from util_tools.logger import get_logger
 from langchain_huggingface import HuggingFaceEmbeddings
+from pgvector.psycopg2 import register_vector
 import psycopg2
 import psycopg2.extras
 
 from graph_rag.config import get_settings
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -196,9 +196,11 @@ class PGVectorManager:
         """设置 embeddings 模型"""
         s = get_settings()
         logger.info(f"设置 embeddings 模型: {self.model_name}")
-        self.embeddings = HuggingFaceEmbeddings(model_name=self.model_name,
-                                                model_kwargs={"device": s.embedding_device},
-                                                encode_kwargs={"normalize_embeddings": True})
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=self.model_name,
+            model_kwargs={"device": s.embedding_device},
+            encode_kwargs={"normalize_embeddings": True},
+        )
         logger.info("embeddings 模型设置完成")
 
     def init_tables(self):
@@ -233,8 +235,9 @@ class PGVectorManager:
             logger.info("PostgreSQL 连接已关闭")
 
 
-def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int,
-                    model_name: str | None = None) -> PGVectorManager:
+def get_pg_instance(
+    host: str, user: str, password: str, dbname: str, port: int, model_name: str | None = None
+) -> PGVectorManager:
     """获取 PGVectorManager 全局单例（懒加载）。
 
     首次调用时创建实例，后续调用返回同一实例。
@@ -243,7 +246,11 @@ def get_pg_instance(host: str, user: str, password: str, dbname: str, port: int,
     global _pg_instance
     if _pg_instance is None:
         _pg_instance = PGVectorManager(
-            host=host, user=user, password=password,
-            dbname=dbname, port=port, model_name=model_name,
+            host=host,
+            user=user,
+            password=password,
+            dbname=dbname,
+            port=port,
+            model_name=model_name,
         )
     return _pg_instance

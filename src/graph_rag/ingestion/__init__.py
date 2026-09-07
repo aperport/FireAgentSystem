@@ -45,8 +45,6 @@
 
 # [修改] 原先 __init__.py 只有文档字符串，未实际导出函数。
 # 现在从 save_data 导出顶层编排函数，使 from graph_rag.ingestion import ingest_markdown 可用。
-from graph_rag.ingestion.save_data import ingest_markdown, ingest_directory, IngestResult
+from graph_rag.ingestion.save_data import IngestResult, ingest_directory, ingest_markdown
 
 __all__ = ["ingest_markdown", "ingest_directory", "IngestResult"]
-
-

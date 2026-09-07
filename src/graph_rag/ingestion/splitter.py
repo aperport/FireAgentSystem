@@ -6,14 +6,15 @@ Markdown 切分模块 — 将 ParsedDocument 切分为文本片段和图片文�
 """
 
 import re
-import uuid
 from typing import List, Tuple
+import uuid
 
-from langchain_text_splitters import MarkdownHeaderTextSplitter
 from langchain_core.documents import Document
+from langchain_text_splitters import MarkdownHeaderTextSplitter
+
+from util_tools.logger import get_logger
 
 from .doc_parser import ParsedDocument
-from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -37,18 +38,19 @@ def split(
         chunk.metadata["chunk_index"] = i
 
     logger.info(
-        f"切分完成: {parsed_doc.metadata.get('filename', '未知')}, "
-        f"文本={len(text_chunks)}, 图片={len(image_docs)}"
+        f"切分完成: {parsed_doc.metadata.get('filename', '未知')}, 文本={len(text_chunks)}, 图片={len(image_docs)}"
     )
     return text_chunks, image_docs
 
 
 # ===================== 标题切分 =====================
 
+
 def _split_by_headers(parsed_doc: ParsedDocument) -> List[Document]:
     """按 #/##/### 切分，每个片段继承标题链上下文。"""
     splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on=_HEADERS, strip_headers=False,
+        headers_to_split_on=_HEADERS,
+        strip_headers=False,
     )
     try:
         raw_chunks = splitter.split_text(parsed_doc.text)
@@ -64,10 +66,12 @@ def _split_by_headers(parsed_doc: ParsedDocument) -> List[Document]:
             if m:
                 title = m.group(1).strip()
                 break
-        return [Document(
-            page_content=parsed_doc.text,
-            metadata=_base_meta(parsed_doc, title=title, header_chain=title),
-        )]
+        return [
+            Document(
+                page_content=parsed_doc.text,
+                metadata=_base_meta(parsed_doc, title=title, header_chain=title),
+            )
+        ]
 
     chunks = []
     for chunk in raw_chunks:
@@ -103,6 +107,7 @@ def _base_meta(parsed_doc: ParsedDocument, title: str = "", header_chain: str = 
 
 # ===================== 语义二次切分 =====================
 
+
 def _resplit_long(chunks: List[Document], max_size: int) -> List[Document]:
     """超长片段按段落/句子边界再切，子片段继承原 metadata。"""
     result = []
@@ -112,10 +117,7 @@ def _resplit_long(chunks: List[Document], max_size: int) -> List[Document]:
             continue
         for sub in _greedy_split(chunk.page_content, max_size):
             result.append(Document(page_content=sub, metadata=dict(chunk.metadata)))
-        logger.debug(
-            f"二次切分: '{chunk.metadata.get('title', '')}' "
-            f"({len(chunk.page_content)}字 → {len(result)}片段)"
-        )
+        logger.debug(f"二次切分: '{chunk.metadata.get('title', '')}' ({len(chunk.page_content)}字 → {len(result)}片段)")
     return result
 
 
@@ -147,7 +149,7 @@ def _pack(pieces: List[str], max_size: int, sep: str) -> List[str]:
                 fragments.append(current)
             if len(piece) > max_size:
                 for j in range(0, len(piece), max_size):
-                    fragments.append(piece[j:j + max_size])
+                    fragments.append(piece[j : j + max_size])
                 current = ""
             else:
                 current = piece
@@ -158,23 +160,27 @@ def _pack(pieces: List[str], max_size: int, sep: str) -> List[str]:
 
 # ===================== 图片提取 =====================
 
+
 def _extract_image_docs(parsed_doc: ParsedDocument) -> List[Document]:
     """从 ParsedDocument.images 生成独立的图片 Document。"""
     docs = []
     for img in parsed_doc.images:
         alt = img.get("alt", "")
-        docs.append(Document(
-            page_content=alt,
-            metadata={
-                **_base_meta(parsed_doc, title=alt or "图片"),
-                "image_path": img.get("path", ""),
-            },
-        ))
+        docs.append(
+            Document(
+                page_content=alt,
+                metadata={
+                    **_base_meta(parsed_doc, title=alt or "图片"),
+                    "image_path": img.get("path", ""),
+                },
+            )
+        )
     logger.debug(f"图片分离: {len(docs)} 张")
     return docs
 
 
 # ===================== 合并过小片段 =====================
+
 
 def _merge_small(chunks: List[Document], min_size: int) -> List[Document]:
     """过小片段合并到相邻片段（优先向后）。"""

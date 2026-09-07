@@ -32,6 +32,7 @@ from util_tools.logger import get_logger
 logger = get_logger(__name__)
 # 默认查询语句，后续需要改
 
+
 class GraphQueries:
     # ── 系统操作子图 ──
     system_operations_navigation: LiteralString = """
@@ -58,10 +59,10 @@ class GraphQueries:
     RETURN equipment, dependent_equipment, zone
     """
 
-    def __init__(self,OpenAI_client):
+    def __init__(self, OpenAI_client):
         self.llm_client = OpenAI_client
 
-    async def query_llm(self,key_words:Entity):
+    async def query_llm(self, key_words: Entity):
         # 构建节点类型描述
         node_desc = "\n".join(f"    - {k}：{v}" for k, v in NODE_TYPES.items())
         rel_desc = "\n".join(f"    - {k}：{v}" for k, v in REL_TYPES.items())
@@ -104,7 +105,7 @@ class GraphQueries:
             if stripped.startswith("```"):
                 first_newline = stripped.find("\n")
                 if first_newline != -1:
-                    stripped = stripped[first_newline + 1:]
+                    stripped = stripped[first_newline + 1 :]
                 else:
                     stripped = stripped[3:]
                 if stripped.rstrip().endswith("```"):
@@ -112,9 +113,3 @@ class GraphQueries:
             return json.loads(stripped)
         except Exception as e:
             logger.error("理解查询意图失败:%s", str(e))
-
-
-
-        
-    
-    

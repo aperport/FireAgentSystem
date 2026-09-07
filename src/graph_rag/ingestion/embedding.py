@@ -8,6 +8,7 @@ import asyncio
 from typing import Optional
 
 from langchain_core.embeddings import Embeddings
+
 from graph_rag.config import get_settings
 from util_tools.logger import get_logger
 
@@ -44,6 +45,7 @@ def create_embedder(
 
 
 # ===================== 便捷函数 =====================
+
 
 async def aembed_documents(texts: list[str], embedder: Optional[Embeddings] = None) -> list[list[float]]:
     """异步批量文本向量化。

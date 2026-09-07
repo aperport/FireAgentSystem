@@ -37,25 +37,29 @@ BM25 索引生命周期：
     - 初始化时自动构建 BM25 索引
     - 中文停用词表可替换为专业停用词包
 """
+
 import hashlib
+
 import jieba
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnableConfig
 from rank_bm25 import BM25Okapi
-from graph_rag.vector_db.collections import LOAD_ALL_TEXT_SQL, DENSE_SEARCH_SQL
-from util_tools.logger import get_logger
 
+from graph_rag.vector_db.collections import DENSE_SEARCH_SQL, LOAD_ALL_TEXT_SQL
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 # 中文停用词表：助词 / 连词 / 疑问词 / 人称 / 语气词 / 动词修饰（网上有类似的包，但需要考虑实际项目）
-_CHINESE_STOPWORDS = set("""
+_CHINESE_STOPWORDS = set(
+    """
 的 了 和 是 在 我 有 就 不 也 都 还 这 那 一 个 与 及 等 上 下 中 为 以 于 从 把 被 让 使 又 而 但 或
 什么 怎么 如何 哪些 哪个 哪里 谁 多少 几 你 他 她 它 我们 他们 她们 它们
 请问 请 想 要 需要 能 可以 应该 会 啊 呢 吧 嘛 吗 哦 呀 哈
 之 其 此 该 即 各 每 些 种 类 时 后 前 里 外 内 间 已经 正在 一些 一下
-""".split())
+""".split()
+)
 
 
 class HybridRetrievalModule:
@@ -66,16 +70,16 @@ class HybridRetrievalModule:
     3. 相似度检索（余弦相似度）
     4. RRF 融合，融合三路检索结果
     """
-    def __init__(self, PGV_module,llm_client,config:RunnableConfig|None=None):
+
+    def __init__(self, PGV_module, llm_client, config: RunnableConfig | None = None):
         self.config = config
         self.PGV_module = PGV_module
         self.llm_client = llm_client
         self.parent_map = {}
 
         # BM25 索引 + 原始文档
-        self.bm25: BM25Okapi| None = None
+        self.bm25: BM25Okapi | None = None
         self.bm25_corpus_docs: list[Document] = []
-
 
     def rebuild_bm25_index(self):
         """从 PG 重新加载全部文本，重建 BM25 索引"""
@@ -84,11 +88,22 @@ class HybridRetrievalModule:
         rows = cur.fetchall()
         chunks = []
         for row in rows:
-            chunks.append(Document(page_content=row["text"], metadata={"id": row["id"], "category": row["category"], "source_file": row["source_file"], "source_name": row.get("source_name", ""),"title": row["title"]}))
-        
+            chunks.append(
+                Document(
+                    page_content=row["text"],
+                    metadata={
+                        "id": row["id"],
+                        "category": row["category"],
+                        "source_file": row["source_file"],
+                        "source_name": row.get("source_name", ""),
+                        "title": row["title"],
+                    },
+                )
+            )
+
         self.initialize(chunks)
 
-    def initialize(self,chunks:list[Document]):
+    def initialize(self, chunks: list[Document]):
         """初始化检索系统"""
 
         # 初始化 BM25（jieba 分词 + 中文停用词过滤）
@@ -97,7 +112,7 @@ class HybridRetrievalModule:
             # 将文档通过分词分成单词，然后过滤掉中文停用词，再构建 BM25 索引
             tokenized_corpus = [self._tokenize_chinese(doc.page_content) for doc in chunks]
             self.bm25 = BM25Okapi(tokenized_corpus)
-            avg_token = sum(len(t) for t in tokenized_corpus) / max(len(tokenized_corpus),1)
+            avg_token = sum(len(t) for t in tokenized_corpus) / max(len(tokenized_corpus), 1)
             logger.info(f"BM25 索引构建完成，平均单词数：{avg_token},文档数量：{len(chunks)}")
 
         # 初始化 父文档映射表
@@ -105,15 +120,13 @@ class HybridRetrievalModule:
         logger.info("父文档映射表构建完成，文档数量：{}".format(len(self.parent_map)))
 
     @staticmethod
-    def _tokenize_chinese(text:str) ->list[str]:
-        """中文分词（过滤停用词）""" 
+    def _tokenize_chinese(text: str) -> list[str]:
+        """中文分词（过滤停用词）"""
         if not text:
             return []
         return [token for token in jieba.lcut(text) if token not in _CHINESE_STOPWORDS and token.strip()]
-    
 
-
-    def bm25_search(self,query:str,top_K:int = 5)->list[Document]:
+    def bm25_search(self, query: str, top_K: int = 5) -> list[Document]:
         """
         BM25 关键词检索,在使用jieba分词后，查BM250索引，按分数降序返回k调数据，分数计入metadata,供以后调试或者分数融合使用
         args:
@@ -128,12 +141,12 @@ class HybridRetrievalModule:
         # 1. BM25 关键词检索
         tokenized_query = self._tokenize_chinese(query)
         if not tokenized_query:
-            logger.warning("BM分词查询结果为空，无法进行检索，跳过本次查询，%s",query)
+            logger.warning("BM分词查询结果为空，无法进行检索，跳过本次查询，%s", query)
             return []
         # 按分数降序去top_k
         scores = self.bm25.get_scores(tokenized_query)
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_K]
-        docs:list[Document] = []
+        docs: list[Document] = []
         for index in top_indices:
             score = float(scores[index])
             if score < 0.1:
@@ -147,7 +160,6 @@ class HybridRetrievalModule:
             docs.append(doc)
             logger.info(f"BM25 关键词检索结果：{doc.page_content}，分数：{score}")
         return docs
-    
 
     def dense_search(
         self,
@@ -226,11 +238,9 @@ class HybridRetrievalModule:
         except Exception as e:
             logger.error(f"稠密向量检索失败：{e}")
             return []
-    
+
     @staticmethod
-    def _rrf_merge(
-        ranked_list: list[tuple[str, list[Document]]],  top_k: int ,k: int = 60
-    )-> list[Document]:
+    def _rrf_merge(ranked_list: list[tuple[str, list[Document]]], top_k: int, k: int = 60) -> list[Document]:
         """RRF 融合，去重之后计算等分排名，返回前k个
                 Reciprocal Rank Fusion: score(d) = Σ_i 1 / (k + best_rank_i(d))
         args:
@@ -252,7 +262,8 @@ class HybridRetrievalModule:
                 # 去重 key：PG id 优先，page_content hash 兜底
                 pg_id = doc.metadata.get("id")
                 doc_id = (
-                    str(pg_id) if pg_id is not None
+                    str(pg_id)
+                    if pg_id is not None
                     else f"hash::{hashlib.md5(doc.page_content[:200].encode('utf-8')).hexdigest()}"
                 )
 
@@ -264,15 +275,10 @@ class HybridRetrievalModule:
                 if curr_best is None or rank < curr_best:
                     best_rank_per_source[doc_id][source_name] = rank
 
-                chunk_hits_per_source[doc_id][source_name] = (
-                    chunk_hits_per_source[doc_id].get(source_name, 0) + 1
-                )
+                chunk_hits_per_source[doc_id][source_name] = chunk_hits_per_source[doc_id].get(source_name, 0) + 1
 
                 new_key = (rank, source_priority)
-                if (
-                    doc_id not in best_doc_info
-                    or new_key < (best_doc_info[doc_id][0], best_doc_info[doc_id][1])
-                ):
+                if doc_id not in best_doc_info or new_key < (best_doc_info[doc_id][0], best_doc_info[doc_id][1]):
                     best_doc_info[doc_id] = (rank, source_priority, doc)
 
         # 每个 source 只用 best rank 算一次贡献
@@ -292,14 +298,15 @@ class HybridRetrievalModule:
             new_metadata["rrf_ranks"] = dict(best_rank_per_source[doc_id])
             new_metadata["rrf_chunk_hits"] = dict(chunk_hits_per_source[doc_id])
             new_metadata["final_score"] = rrf_scores[doc_id]
-            merged.append(Document(
-                page_content=source_doc.page_content,
-                metadata=new_metadata,
-            ))
+            merged.append(
+                Document(
+                    page_content=source_doc.page_content,
+                    metadata=new_metadata,
+                )
+            )
 
         return merged
 
-    
     def _build_parent_map(self) -> dict[str, list[Document]]:
         """构建父文档映射表
 
@@ -360,28 +367,5 @@ class HybridRetrievalModule:
         for doc in merged:
             doc.metadata["search_type"] = "hybrid"
 
-        logger.info(
-            f"Hybrid 检索完成：dense={len(dense_docs)}, bm25={len(sparse_docs)}, "
-            f"融合后={len(merged)}"
-        )
+        logger.info(f"Hybrid 检索完成：dense={len(dense_docs)}, bm25={len(sparse_docs)}, 融合后={len(merged)}")
         return merged
-    
-    
-
-
-
-
- 
-        
-
-
-
-
-
-
-        
-
-
-        
-
-        

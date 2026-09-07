@@ -13,14 +13,21 @@ Cypher 模板从 schema.py 的 dataclass 字段和 REL_TYPES 方向自动生成�
 import dataclasses
 from typing import Optional
 
-from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, Relation
 from graph_rag.graph_db.connection import Neo4jDrivers, get_neo4j_driver
 from graph_rag.graph_db.schema import (
     REL_TYPES,
-    ModuleNode, FunctionNode, StepNode, RequirementNode,
-    RegulationNode, ClauseNode, StandardNode,
-    ZoneTypeNode, EquipmentTypeNode, EquipmentNode, ZoneNode,
+    ClauseNode,
+    EquipmentNode,
+    EquipmentTypeNode,
+    FunctionNode,
+    ModuleNode,
+    RegulationNode,
+    RequirementNode,
+    StandardNode,
+    StepNode,
+    ZoneNode,
+    ZoneTypeNode,
 )
 from util_tools.logger import get_logger
 
@@ -33,18 +40,31 @@ logger = get_logger(__name__)
 # ponytail: 不用 dataclass required/default 推断，因为 Step.step_order 等
 # 虽然必填但不是 Neo4j 唯一键，显式声明更安全。
 _NODE_MERGE_KEYS = {
-    "Module": ["name"], "Function": ["name"], "Step": ["name"],
-    "Requirement": ["name"], "Regulation": ["name"], "Clause": ["name"],
-    "Standard": ["name"], "ZoneType": ["name"], "EquipmentType": ["name"],
-    "Equipment": ["equipment_id"], "Zone": ["zone_id"],
+    "Module": ["name"],
+    "Function": ["name"],
+    "Step": ["name"],
+    "Requirement": ["name"],
+    "Regulation": ["name"],
+    "Clause": ["name"],
+    "Standard": ["name"],
+    "ZoneType": ["name"],
+    "EquipmentType": ["name"],
+    "Equipment": ["equipment_id"],
+    "Zone": ["zone_id"],
 }
 
 _NODE_DATACLASSES = {
-    "Module": ModuleNode, "Function": FunctionNode, "Step": StepNode,
-    "Requirement": RequirementNode, "Regulation": RegulationNode,
-    "Clause": ClauseNode, "Standard": StandardNode,
-    "ZoneType": ZoneTypeNode, "EquipmentType": EquipmentTypeNode,
-    "Equipment": EquipmentNode, "Zone": ZoneNode,
+    "Module": ModuleNode,
+    "Function": FunctionNode,
+    "Step": StepNode,
+    "Requirement": RequirementNode,
+    "Regulation": RegulationNode,
+    "Clause": ClauseNode,
+    "Standard": StandardNode,
+    "ZoneType": ZoneTypeNode,
+    "EquipmentType": EquipmentTypeNode,
+    "Equipment": EquipmentNode,
+    "Zone": ZoneNode,
 }
 
 
@@ -104,6 +124,7 @@ MERGE_REL_CYPHER = _build_merge_rel_cypher()
 
 # ===================== Neo4j 批量写入器 =====================
 
+
 class Neo4jBatchWriter:
     """Neo4j 批量写入器 — UNWIND + MERGE 批量 upsert。"""
 
@@ -112,7 +133,9 @@ class Neo4jBatchWriter:
         self.batch_size = batch_size
 
     async def write_nodes(
-        self, entities: list[Entity], extra_props: dict[str, dict] = {},
+        self,
+        entities: list[Entity],
+        extra_props: dict[str, dict] = {},
     ) -> int:
         """批量写入节点。extra_props: 实体名 → 额外属性。"""
         return await self._batch_write(
@@ -125,7 +148,9 @@ class Neo4jBatchWriter:
         )
 
     async def write_relations(
-        self, relations: list[Relation], extra_props: Optional[dict[str, dict]] = None,
+        self,
+        relations: list[Relation],
+        extra_props: Optional[dict[str, dict]] = None,
     ) -> int:
         """批量写入关系。必须在 write_nodes() 之后调用。"""
         return await self._batch_write(
@@ -133,7 +158,8 @@ class Neo4jBatchWriter:
             templates=MERGE_REL_CYPHER,
             key_fn=lambda r: r.relation,
             row_fn=lambda r, ep: {
-                "source_name": r.source, "target_name": r.target,
+                "source_name": r.source,
+                "target_name": r.target,
                 **ep.get(f"{r.source}→{r.target}", {}),
             },
             label="关系",
@@ -141,7 +167,12 @@ class Neo4jBatchWriter:
         )
 
     async def _batch_write(
-        self, items, templates: dict, key_fn, row_fn, label: str,
+        self,
+        items,
+        templates: dict,
+        key_fn,
+        row_fn,
+        label: str,
         extra_props: Optional[dict[str, dict]] = None,
     ) -> int:
         """通用分组 → 查模板 → 映射 row → 分批执行。"""
@@ -165,7 +196,7 @@ class Neo4jBatchWriter:
 
             async with a_driver.session(database=self.driver.database) as session:
                 for start in range(0, len(rows), self.batch_size):
-                    batch = rows[start: start + self.batch_size]
+                    batch = rows[start : start + self.batch_size]
                     try:
                         await session.run(cypher, {"rows": batch})
                         total += len(batch)

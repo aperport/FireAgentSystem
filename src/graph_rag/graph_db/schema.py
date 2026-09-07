@@ -29,9 +29,9 @@
     - 增加 Schema 版本管理：图结构变更时支持迁移
 """
 
-
 from dataclasses import dataclass
 from typing import Optional
+
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -77,100 +77,114 @@ REL_TYPES = {
 @dataclass
 class ModuleNode:
     """模块节点 — 系统功能模块（系统模块：值班、巡检等）"""
-    name: str                                    # 模块名称（唯一标识）
-    description: Optional[str] = None            # 模块描述
+
+    name: str  # 模块名称（唯一标识）
+    description: Optional[str] = None  # 模块描述
 
 
 @dataclass
 class FunctionNode:
     """功能节点 — 模块下的具体功能（）"""
-    name: str                                    # 功能名称
-    module_name: str                             # 所属模块名称
-    description: Optional[str] = None            # 功能描述
+
+    name: str  # 功能名称
+    module_name: str  # 所属模块名称
+    description: Optional[str] = None  # 功能描述
 
 
 @dataclass
 class StepNode:
     """步骤节点 — 功能的操作步骤（）"""
-    name: str                                    # 步骤名称
-    step_order: int                              # 步骤顺序
-    function_name: str                           # 所属功能名称
-    description: Optional[str] = None            # 步骤描述
+
+    name: str  # 步骤名称
+    step_order: int  # 步骤顺序
+    function_name: str  # 所属功能名称
+    description: Optional[str] = None  # 步骤描述
 
 
 @dataclass
 class RequirementNode:
     """前置条件节点 — 执行步骤所需的前置条件/要求"""
-    name: str                                    # 条件名称
-    step_name: str                               # 关联步骤名称
-    description: Optional[str] = None            # 条件描述
+
+    name: str  # 条件名称
+    step_name: str  # 关联步骤名称
+    description: Optional[str] = None  # 条件描述
 
 
 # ── 法规关联子图 ──
 
+
 @dataclass
 class RegulationNode:
     """法规节点 — 消防法规/规范（如：《建筑设计防火规范》GB50016）"""
-    name: str                                    # 法规名称
-    code: Optional[str] = None                   # 法规编号（如：GB50016-2014）
-    description: Optional[str] = None            # 法规描述
+
+    name: str  # 法规名称
+    code: Optional[str] = None  # 法规编号（如：GB50016-2014）
+    description: Optional[str] = None  # 法规描述
 
 
 @dataclass
 class ClauseNode:
     """条款节点 — 法规中的具体条款（如：第5.1.1条）"""
-    name: str                                    # 条款号（如：第5.1.1条）
-    content: Optional[str] = None                # 条款内容
-    regulation_name: Optional[str] = None        # 所属法规名称
+
+    name: str  # 条款号（如：第5.1.1条）
+    content: Optional[str] = None  # 条款内容
+    regulation_name: Optional[str] = None  # 所属法规名称
 
 
 @dataclass
 class StandardNode:
     """标准节点 — 被条款引用的技术标准（如：GB 17945-2010）"""
-    name: str                                    # 标准名称
-    code: Optional[str] = None                   # 标准编号
-    description: Optional[str] = None            # 标准描述
+
+    name: str  # 标准名称
+    code: Optional[str] = None  # 标准编号
+    description: Optional[str] = None  # 标准描述
 
 
 # ── 分类与规格 ──
 
+
 @dataclass
 class ZoneTypeNode:
     """区域类型节点 — 建筑分区分类（如：高层住宅、地下车库、商业营业厅）"""
-    name: str                                    # 区域类型名称
-    risk_level: Optional[str] = None             # 风险等级
-    description: Optional[str] = None            # 类型描述
+
+    name: str  # 区域类型名称
+    risk_level: Optional[str] = None  # 风险等级
+    description: Optional[str] = None  # 类型描述
 
 
 @dataclass
 class EquipmentTypeNode:
     """设备类型节点 — 设备分类规格（如：烟感探测器、喷淋头、消防泵）"""
-    name: str                                    # 设备类型名称
-    category: Optional[str] = None               # 设备大类（报警/灭火/疏散）
-    description: Optional[str] = None            # 类型描述
+
+    name: str  # 设备类型名称
+    category: Optional[str] = None  # 设备大类（报警/灭火/疏散）
+    description: Optional[str] = None  # 类型描述
 
 
 # ── 实体实例（来自业务数据） ──
 
+
 @dataclass
 class EquipmentNode:
     """设备实例节点 — 具体设备台账（来自业务数据库同步）"""
-    equipment_id: str                            # 设备ID（业务主键）
-    name: str                                    # 设备名称
-    equipment_type: Optional[str] = None         # 设备类型名称
-    install_date: Optional[str] = None           # 安装日期
-    status: Optional[str] = None                 # 设备状态（正常/故障/停用）
+
+    equipment_id: str  # 设备ID（业务主键）
+    name: str  # 设备名称
+    equipment_type: Optional[str] = None  # 设备类型名称
+    install_date: Optional[str] = None  # 安装日期
+    status: Optional[str] = None  # 设备状态（正常/故障/停用）
 
 
 @dataclass
 class ZoneNode:
     """区域实例节点 — 建筑分区（来自业务数据库同步）"""
-    zone_id: str                                 # 区域ID（业务主键）
-    name: str                                    # 区域名称
-    zone_type: Optional[str] = None              # 区域类型名称
-    building: Optional[str] = None               # 所属建筑
-    floor: Optional[str] = None                  # 楼层
-    risk_level: Optional[str] = None             # 风险等级
+
+    zone_id: str  # 区域ID（业务主键）
+    name: str  # 区域名称
+    zone_type: Optional[str] = None  # 区域类型名称
+    building: Optional[str] = None  # 所属建筑
+    floor: Optional[str] = None  # 楼层
+    risk_level: Optional[str] = None  # 风险等级
 
 
 # [删除理由] 11 个关系 dataclass（ContainsFunctionRel, HasStepRel, NextStepRel,
