@@ -8,4 +8,4 @@ fixable = ["ALL"]
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
 combine-as-imports = true
-known-first-party = ["agent", "gtaph_rag", "mcp_server"]
+known-first-party = ["agent", "graph_rag", "mcp_server"]

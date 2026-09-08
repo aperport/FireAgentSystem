@@ -1,7 +1,7 @@
 """
 向量数据库操作子模块 — 基于 PostgreSQL + pgvector 管理向量存储与检索。
 
-✅ 全部已实现。包含三个子文件：
+    全部已实现。包含三个子文件：
     - collections.py：PG 表 Schema 定义（DDL / 索引 / 查询模板 / 连接管理器）
     - db_operator.py：数据插入（文档片段写入 / 图片描述写入）
     - db_retriever.py：检索引擎（dense / sparse / hybrid 三种策略）
@@ -18,7 +18,7 @@
 数据写入由 ingestion/doc_parser/ + ingestion/embedding.py（❌ 骨架）负责。
 数据查询由 vector_retriever.py 通过 db_retriever.py 执行。
 
-⚠️ 已知问题：
+    已知问题：
     1. PGVectorManager 单例模式在多数据库场景下不灵活
     2. Embedding 模型硬编码为 BAAI/bge-small-zh-v1.5 + cuda
 """

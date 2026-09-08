@@ -25,9 +25,9 @@
 """
 
 from langchain_core.documents import Document
+from pgvector.psycopg2 import SparseVector, Vector
 
-from graph_rag.config import get_settings
-from graph_rag.ingestion.embedding import get_embedder
+from graph_rag.ingestion.embedding import encode_hybrid
 from graph_rag.vector_db.collections import PGVectorManager, get_pg_instance
 from util_tools.logger import get_logger
 
@@ -43,18 +43,7 @@ class DBOperator:
     @property
     def pg(self) -> PGVectorManager:
         """延迟初始化 PGVectorManager，首次访问时创建连接"""
-        if self._pg is None:
-            s = get_settings()
-            if not s.pg_password:
-                raise ValueError("PG_PASSWORD 环境变量未设置，请在 .env 中配置 PostgreSQL 密码")
-            self._pg = get_pg_instance(
-                host=s.pg_host,
-                user=s.pg_user,
-                password=s.pg_password,
-                dbname=s.pg_dbname,
-                port=s.pg_port,
-            )
-            logger.info(f"PGVectorManager 已初始化: {s.pg_host}:{s.pg_port}/{s.pg_dbname}")
+        self._pg = get_pg_instance()
         return self._pg
 
     # [合并理由] insert_chunks 和 insert_picture 逻辑几乎完全相同，
@@ -65,21 +54,23 @@ class DBOperator:
         columns: list[str],
         documents: list[Document],
         metadata_keys: list[str],
+        max_sparse_tokens: int = 128,
     ) -> None:
         """通用向量文档写入方法。
 
         Args:
             table_name: 目标表名（如 fire_doc_collection / fire_image_collection）
-            columns: 列名列表（最后一列必须是 dense_vector）
+            columns: 列名列表（最后两列必须是 sparse_vector, dense_vector）
             documents: 待写入的文档列表
-            metadata_keys: 从 metadata 中提取的字段名列表（与 columns 前 N-1 列对应，不含 text 和 dense_vector）
+            metadata_keys: 从 metadata 中提取的字段名列表（与 columns 前 N-2 列对应，不含 text 和向量列）
         """
         if not documents:
             return
         try:
             texts = [doc.page_content for doc in documents]
             # 全局 Embedding 单例，与检索侧同一模型、同一向量空间
-            vectors = get_embedder().embed_documents(texts)
+            results = encode_hybrid(texts)
+
             logger.info(f"向量表 {table_name} 写入 {len(texts)} 条数据")
 
             col_str = ", ".join(columns)
@@ -87,11 +78,17 @@ class DBOperator:
             insert_sql = f"INSERT INTO {table_name} ({col_str}) VALUES ({placeholders});"
 
             cur = self.pg.get_cursor()
-            for doc, vector in zip(documents, vectors):
+            for doc, result in zip(documents, results):
                 values = [doc.page_content]
                 for key in metadata_keys:
                     values.append(doc.metadata.get(key, ""))
-                values.append(vector)
+                # sparse_vector：Top-K 截断控制非零元素 ≤ 1000（sparsevec HNSW 索引上限）
+                sparse = result["sparse"]
+                top_items = sorted(sparse.items(), key=lambda x: x[1], reverse=True)[:max_sparse_tokens]
+                # 稀疏向量索引从 1 起：token_id 0 → 1
+                values.append(SparseVector({k + 1: v for k, v in top_items}, 250002))
+                values.append(Vector(result["dense"]))
+                # 这里columns顺序是死的。
                 cur.execute(insert_sql, tuple(values))
             logger.info(f"向量表 {table_name} 写入完成，共 {len(texts)} 条数据")
         except Exception as e:
@@ -102,7 +99,7 @@ class DBOperator:
         """将向量化后的文档片段写入 fire_doc_collection。"""
         self._insert_documents(
             table_name="fire_doc_collection",
-            columns=["text", "category", "source_file", "source_name", "title", "dense_vector"],
+            columns=["text", "category", "source_file", "source_name", "title", "sparse_vector", "dense_vector"],
             documents=chunks,
             metadata_keys=["category", "source_file", "source_name", "title"],
         )
@@ -111,7 +108,16 @@ class DBOperator:
         """将向量化的图片描述写入 fire_image_collection。"""
         self._insert_documents(
             table_name="fire_image_collection",
-            columns=["text", "category", "image_path", "source_file", "source_name", "title", "dense_vector"],
+            columns=[
+                "text",
+                "category",
+                "image_path",
+                "source_file",
+                "source_name",
+                "title",
+                "sparse_vector",
+                "dense_vector",
+            ],
             documents=documents,
             metadata_keys=["category", "image_path", "source_file", "source_name", "title"],
         )

@@ -45,7 +45,7 @@ import jieba
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
 
-from graph_rag.ingestion.embedding import get_embedder
+from graph_rag.ingestion.embedding import get_embedder, encode_query_dense, encode_query_sparse
 from graph_rag.vector_db.collections import (
     DENSE_SEARCH_SQL,
     LOAD_ALL_TEXT_SQL,
@@ -158,29 +158,20 @@ class HybridRetrievalModule:
     3. RRF 融合多路检索结果（模块级 rrf_merge 纯函数）
     """
 
-    def __init__(self, pg: "PGVectorManager", embedder=None):
+    def __init__(self, pg: "PGVectorManager"):
         """初始化混合检索模块。
 
         Args:
-            pg: PGVectorManager 连接管理器（仅提供 cursor，不含模型）
-            embedder: Embedding 实例。None 则懒加载全局单例
-                graph_rag.ingestion.embedding.get_embedder()，
-                保证查询向量化与入库向量化同一模型、同一向量空间。
+            pg: PGVectorManager 连接管理器（仅提供 cursor，不含模型）。
+                查询向量化走 ingestion.embedding.encode_query_dense()，
+                与入库向量化同一模型、同一向量空间。
         """
         self.pg = pg
-        self._embedder = embedder
         self.parent_map: dict[str, list[Document]] = {}
 
         # BM25 索引 + 原始文档（sparsevec 路线启用后整套删除）
         self.bm25: BM25Okapi | None = None
         self.bm25_corpus_docs: list[Document] = []
-
-    @property
-    def embedder(self):
-        """懒加载全局 Embedding 单例。"""
-        if self._embedder is None:
-            self._embedder = get_embedder()
-        return self._embedder
 
     def rebuild_bm25_index(self):
         """从 PG 重新加载全部文本，重建 BM25 索引。
@@ -327,7 +318,7 @@ class HybridRetrievalModule:
         """
         try:
             # 1. 查询文本向量化（全局 Embedding 单例，与入库同一模型）
-            query_vector = self.embedder.embed_query(query)
+            query_vector = encode_query_dense(query)
 
             # 2. 构建分类过滤条件
             category_filter = ""

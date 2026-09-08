@@ -11,7 +11,6 @@ from typing import Protocol
 
 from datasets import Dataset
 from langchain_core.language_models import BaseChatModel
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 import pandas as pd
 from ragas import RunConfig, evaluate
@@ -25,6 +24,7 @@ from ragas.metrics import (
 import yaml
 
 from graph_rag.config import get_settings
+from graph_rag.ingestion.embedding import BGEM3EmbeddingsAdapter
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -122,12 +122,7 @@ class ReferenceBasedEvaluation:
         运行评估
         """
         logger.info("开始评估")
-        s = get_settings()  # 获取全局配置
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=self.model_name,
-            model_kwargs={"device": s.embedding_device},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        self.embeddings = BGEM3EmbeddingsAdapter()
         # 加载数据
         eval_data_dict = self.load_evaluation_data()
         dataset = Dataset.from_dict(eval_data_dict)

@@ -35,7 +35,8 @@ class GraphRAGSettings(BaseSettings):
     neo4j_database: str = "neo4j"
 
     # ── Embedding ──
-    embedding_model_name: str = "BAAI/bge-small-zh-v1.5"
+    # BGE-M3：dense 1024 维（写入 PG vector(1024)），sparse lexical_weights 维度 250002
+    embedding_model_name: str = "BAAI/bge-m3"
     embedding_device: str = "cpu"
 
     # ── 检索参数 ──

@@ -23,7 +23,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langchain_core.language_models import BaseChatModel
 
-from graph_rag.config import get_settings
 from graph_rag.context_fusion import ContextFusionModule
 from graph_rag.entity_extractor import DocumentGraphExtractionPipeline, ExtractResult
 from graph_rag.graph_traverser import GraphTraverser
@@ -71,14 +70,8 @@ class _BM25Index:
             with cls._lock:
                 if cls._instance is not None:
                     return cls._instance
-                s = get_settings()
-                pg = get_pg_instance(
-                    host=s.pg_host,
-                    user=s.pg_user,
-                    password=s.pg_password,
-                    dbname=s.pg_dbname,
-                    port=s.pg_port,
-                )
+
+                pg = get_pg_instance()
                 cls._instance = HybridRetrievalModule(
                     pg=pg,
                 )

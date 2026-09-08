@@ -5,7 +5,7 @@
     1. fire_doc_collection   — 知识文档片段（法规、手册、巡检报告）
     2. fire_image_collection — 图片多模态描述（设备照片 OCR 结果）
 
-检索策略（dense 走 PG；sparse 当前由 Python 端 rank_bm25 实现，
+检索策略（dense 走 PG；
 后续将切换为 pgvector 原生 sparsevec 字段，见下方「稀疏向量演进路线」）：
     - dense 检索：PG pgvector 余弦相似度（语义模糊查询）
     - sparse 检索：当前 Python jieba + rank_bm25（精确关键词）
@@ -19,6 +19,7 @@
     - source_name  VARCHAR(255)   来源文件名
     - title        VARCHAR(255)   标题/条款号
     - dense_vector vector(512)    稠密语义向量（BAAI/bge-small-zh-v1.5，512维）
+    - sparse_vector sparsevec    稀疏向量（BM25 索引的数据源）
 
 fire_image_collection 独有字段：
     - image_path     VARCHAR(512) 图片路径
@@ -38,7 +39,7 @@ PGV 已支持原生稀疏向量类型 sparsevec，后续将把稀疏向量存入
        sparsevec 仅支持 HNSW 索引（不支持 IVFFlat），非零元素上限 1000；
        稀疏向量建索引应使用 sparsevec_cosine_ops，与 dense 检索距离函数保持一致
 
-⚠️ 已知问题：
+    已知问题：
     1. IVFFlat 索引 lists=100 在数据量小时效果差，应根据数据量动态调整
     2. Embedding 配置（模型名/设备）已外部化到 config.py + ingestion/embedding.py 单例
 
@@ -46,10 +47,13 @@ PGV 已支持原生稀疏向量类型 sparsevec，后续将把稀疏向量存入
 也为 db_retriever.py 的检索提供查询模板与输出字段映射。
 """
 
+from functools import lru_cache
+
 from pgvector.psycopg2 import register_vector
 import psycopg2
 import psycopg2.extras
 
+from graph_rag.config import get_settings
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -66,7 +70,8 @@ CREATE TABLE IF NOT EXISTS fire_doc_collection (
     source_file   VARCHAR(255),
     source_name   VARCHAR(255),
     title         VARCHAR(255),
-    dense_vector  vector(512),
+    dense_vector  vector(1024),
+    sparse_vector sparsevec(250002),
     created_at    TIMESTAMP DEFAULT NOW()
 );
 
@@ -87,7 +92,8 @@ CREATE TABLE IF NOT EXISTS fire_image_collection (
     source_file   VARCHAR(255),
     source_name   VARCHAR(255),
     title         VARCHAR(255),
-    dense_vector  vector(512),
+    dense_vector  vector(1024),
+    sparse_vector sparsevec(250002),
     created_at    TIMESTAMP DEFAULT NOW()
 );
 
@@ -172,8 +178,6 @@ ORDER BY id
 
 # ──────────────── 全局单例 ────────────────
 
-_pg_instance: "PGVectorManager | None" = None
-
 
 class PGVectorManager:
     """PostgreSQL + pgvector 连接管理器（纯连接层 + DDL 运维）
@@ -185,17 +189,6 @@ class PGVectorManager:
     不再负责 Embedding 模型：向量化统一走
     graph_rag.ingestion.embedding.get_embedder() 全局单例，
     避免连接管理与模型推理两类异构资源互相耦合。
-
-    使用方式：
-        from graph_rag.vector_db.collections import get_pg_instance
-        import os
-        pg = get_pg_instance(
-            host=os.getenv("PG_HOST", "localhost"),
-            user=os.getenv("PG_USER", "postgres"),
-            password=os.getenv("PG_PASSWORD", ""),
-            dbname=os.getenv("PG_DBNAME", "fire_rag"),
-        )
-        pg.init_tables()  # 首次部署时调用
     """
 
     def __init__(self, host: str, user: str, password: str, dbname: str, port: int):
@@ -277,21 +270,19 @@ class PGVectorManager:
             logger.info("PostgreSQL 连接已关闭")
 
 
-def get_pg_instance(
-    host: str, user: str, password: str, dbname: str, port: int
-) -> PGVectorManager:
+@lru_cache
+def get_pg_instance() -> PGVectorManager:
     """获取 PGVectorManager 全局单例（懒加载）。
 
     首次调用时创建实例，后续调用返回同一实例。
     替代原先的 __new__ 单例模式，更清晰且易于测试。
     """
-    global _pg_instance
-    if _pg_instance is None:
-        _pg_instance = PGVectorManager(
-            host=host,
-            user=user,
-            password=password,
-            dbname=dbname,
-            port=port,
+    s = get_settings()
+    try:
+        pg_instance = PGVectorManager(
+            host=s.pg_host, port=s.pg_port, user=s.pg_user, password=s.pg_password, dbname=s.pg_dbname
         )
-    return _pg_instance
+        return pg_instance
+    except:
+        logger.error("创建 PGVectorManager 实例失败")
+        raise

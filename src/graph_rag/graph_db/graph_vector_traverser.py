@@ -22,14 +22,12 @@
 
 from typing import Protocol
 
-from langchain_core.embeddings import Embeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from neo4j import AsyncDriver
 import numpy as np
 
-from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers, get_neo4j_driver
+from graph_rag.ingestion.embedding import get_embedder
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -167,22 +165,18 @@ class PathTextFormatter:
 
 
 class VectorReranker:
-    def __init__(self, embedder: Embeddings | None = None, top_k: int = 5, score_threshold: float = 0.3):
+    def __init__(self, embedder=None, top_k: int = 5, score_threshold: float = 0.3):
         """
         args:
-            embedder: Embeddings  实体抽取模型，不填写默认系统配置
+            embedder: BGE-M3 实例，不填写默认 get_embedder() 全局单例，
+                与入库/检索侧同一模型、同一向量空间
             top_k: Top-K        返回的子图数量
             max_paths_per_entity: 每个实体最多遍历的路径数
             score_threshold:    相似度阈值
         """
-        s = get_settings()
         self.top_k = top_k
         self.score_threshold = score_threshold
-        self.embedder = embedder or HuggingFaceEmbeddings(
-            model_name=s.embedding_model_name,
-            model_kwargs={"device": s.embedding_device},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        self.embedder = embedder or get_embedder()
 
     def rank_by_similarity(self, query: str, subgraph_texts: list[dict]) -> list[SubGraphResult]:
         """
@@ -195,17 +189,20 @@ class VectorReranker:
         if not subgraph_texts:
             return []
 
-        _query_embedding = self.embedder.embed_query(query)
-        query_vec = np.array(_query_embedding)
-
-        # 子图文本 Embedding
-        texts = [item["text"] for item in subgraph_texts]
-        doc_embeddings = self.embedder.embed_documents(texts)
+        # 一次 encode 同时取 query 与子图文本的稠密向量
+        outputs = self.embedder.encode(
+            [query] + [item["text"] for item in subgraph_texts],
+            return_dense=True,
+            return_sparse=False,
+            return_colbert_vecs=False,
+        )
+        dense_vecs = outputs["dense_vecs"]
+        query_vec = np.asarray(dense_vecs[0])
+        doc_vecs = dense_vecs[1:]
 
         # 余弦相似度
         results = []
-        for item, doc_vec in zip(subgraph_texts, doc_embeddings):
-            doc_arr = np.array(doc_vec)
+        for item, doc_arr in zip(subgraph_texts, doc_vecs):
             norm_product = np.linalg.norm(query_vec) * np.linalg.norm(doc_arr)
             if norm_product == 0:
                 score = 0.0
