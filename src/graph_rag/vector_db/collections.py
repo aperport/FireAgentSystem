@@ -5,43 +5,60 @@
     1. fire_doc_collection   — 知识文档片段（法规、手册、巡检报告）
     2. fire_image_collection — 图片多模态描述（设备照片 OCR 结果）
 
-检索策略（dense 走 PG；
-后续将切换为 pgvector 原生 sparsevec 字段，见下方「稀疏向量演进路线」）：
-    - dense 检索：PG pgvector 余弦相似度（语义模糊查询）
-    - sparse 检索：当前 Python jieba + rank_bm25（精确关键词）
-    - hybrid 检索：dense + sparse 在 Python 层 RRF 融合
+检索策略（sparse 当前走内存 BM25，sparsevec 检索启用后切换为 SQL，
+见下方「稀疏向量（sparsevec）路线」）：
+    - dense 检索：PG pgvector 余弦相似度（语义模糊查询）✅ 生效
+    - sparse 检索：Python jieba + rank_bm25（精确关键词）✅ 生效
+      ——启动时全表加载 text 在内存建索引，内存与耗时随数据量线性上升
+    - hybrid 检索：dense + sparse 在 Python 层 RRF 融合 ✅ 生效
+    - sparsevec 检索：PG sparse_vector 字段 SQL 检索 ❌ 未启用
+      ——写入已就绪，仅检索未实现，见 db_retriever.sparse_search()
 
 共用字段：
     - id           SERIAL PRIMARY KEY
-    - text         TEXT           文本内容（BM25 索引的数据源）
+    - text         TEXT           文本内容（当前为内存 BM25 索引的语料来源）
     - category     VARCHAR(50)    分类（regulation / standard / manual / faq）
     - source_file  VARCHAR(255)   来源文件hash
     - source_name  VARCHAR(255)   来源文件名
     - title        VARCHAR(255)   标题/条款号
-    - dense_vector vector(512)    稠密语义向量（BAAI/bge-small-zh-v1.5，512维）
-    - sparse_vector sparsevec    稀疏向量（BM25 索引的数据源）
+    - dense_vector vector(1024)        稠密向量（BAAI/bge-m3，1024 维）
+    - sparse_vector sparsevec(250002)  稀疏向量（BGE-M3 lexical weights，
+                                Top-128 截断后写入，token id +1（索引从 1 起）；
+                                与 BM25 是两套独立权重，不是 BM25 的数据源）
 
 fire_image_collection 独有字段：
     - image_path     VARCHAR(512) 图片路径
 
 ═══════════════════════════════════════════════
-稀疏向量演进路线（接口已预留，当前未启用）
+稀疏向量（sparsevec）路线：写入已实装，检索未启用
 ═══════════════════════════════════════════════
-PGV 已支持原生稀疏向量类型 sparsevec，后续将把稀疏向量存入相应字段、
-改用 SQL 查询替代「启动时从 PG 加载全表 text 在内存构建 BM25 索引」。
+目标：用 PG 原生 sparsevec 字段做 SQL 检索，替代
+「启动时从 PG 加载全表 text 在内存构建 BM25 索引」。
 
-已为本路线预留（启用前请勿删除）：
-    1. 表结构：SPARSE_VECTOR_DDL — 为两张表添加 sparse_vector sparsevec 字段
-    2. 写入：SPARSE_VECTOR_PLACEHOLDER — db_operator._insert_documents 预留的
-       列拼接点（稀疏向量字面量格式 '{索引:值,索引:值}/维度'，索引从 1 起）
-    3. 查询：SPARSE_SEARCH_SQL — sparsevec 余弦相似度检索模板
-    4. 索引：FIRE_DOC_SPARSE_INDEX / FIRE_IMAGE_SPARSE_INDEX —
+当前进度：
+    ✅ 表结构 — 新建表的 DDL 已含 sparse_vector sparsevec(250002)；
+       存量表执行 init_sparse_columns()（SPARSE_VECTOR_DDL）补列
+    ✅ 写入   — db_operator._insert_documents() 已写入 SparseVector，
+       Top-128 截断（非零元素 ≤ 1000），token id +1（sparsevec 索引从 1 起）
+    ❌ 检索   — db_retriever.sparse_search() 仍是 NotImplementedError 桩，
+       启用前 sparse 检索继续走内存 BM25
+    ❌ 索引   — 需入库后调用 build_sparse_vector_indexes() 建 HNSW
+
+启用检索前的剩余步骤（下列预留接口请勿删除）：
+    1. 查询：SPARSE_SEARCH_SQL — sparsevec <=> 余弦检索模板，
+       占位符 {sparse_vector_placeholder} 填 '%s::sparsevec'
+    2. 字面量：SPARSE_VECTOR_PLACEHOLDER — 供手写 SQL 参考；
+       当前写入路径未使用（db_operator 直接绑定 pgvector SparseVector 参数）
+    3. 索引：FIRE_DOC_SPARSE_INDEX / FIRE_IMAGE_SPARSE_INDEX —
        sparsevec 仅支持 HNSW 索引（不支持 IVFFlat），非零元素上限 1000；
-       稀疏向量建索引应使用 sparsevec_cosine_ops，与 dense 检索距离函数保持一致
+       建索引用 sparsevec_cosine_ops，与 dense 检索距离函数保持一致
+    4. 实现 sparse_search() 后，删除内存 BM25 整套机器
+       （分词 / 停用词 / rebuild_bm25_index / bm25_search / LOAD_ALL_TEXT_SQL）
 
     已知问题：
     1. IVFFlat 索引 lists=100 在数据量小时效果差，应根据数据量动态调整
-    2. Embedding 配置（模型名/设备）已外部化到 config.py + ingestion/embedding.py 单例
+    2. BM25 索引每次重建都全表扫描 fire_doc_collection，随数据量增长线性变慢
+    3. Embedding 配置（模型名/设备）已外部化到 config.py + ingestion/embedding.py 单例
 
 本文件为 db_operator.py 的数据插入提供表创建与字段校验，
 也为 db_retriever.py 的检索提供查询模板与输出字段映射。
@@ -113,13 +130,16 @@ CREATE INDEX IF NOT EXISTS idx_image_dense ON fire_image_collection
 """
 
 
-# ──────────────── 稀疏向量（sparsevec）预留 ────────────────
-# PGV 原生稀疏向量路线。当前未启用（sparse 仍走内存 BM25），启用步骤：
-#   1. 执行 SPARSE_VECTOR_DDL 加字段
-#   2. db_operator 写入时拼接 SPARSE_VECTOR_PLACEHOLDER 列与 '{i:v}/dim' 字面量
-#   3. db_retriever.sparse_search 按 SPARSE_SEARCH_SQL 查询
-#   4. 入库后调用 build_sparse_vector_indexes() 建 HNSW 索引
-#   5. 删除内存 BM25 整套机器（分词/停用词/重建/检索）
+# ──────────────── 稀疏向量（sparsevec）路线 ────────────────
+# 进度：写入已实装（db_operator 直接绑定 pgvector SparseVector）；
+#       检索未启用（sparse 仍走内存 BM25，db_retriever.sparse_search 为桩）。
+# 新建表 DDL 已含 sparse_vector 列；存量表用下面的 SPARSE_VECTOR_DDL 补列。
+# 剩余启用步骤：
+#   1. 实现 db_retriever.sparse_search：按 SPARSE_SEARCH_SQL 查询，
+#      查询向量转字面量 '{i:v}/dim'（索引从 1 起）
+#   2. 入库后调用 build_sparse_vector_indexes() 建 HNSW 索引
+#   3. 删除内存 BM25 整套机器（分词 / 停用词 / rebuild_bm25_index /
+#      bm25_search / LOAD_ALL_TEXT_SQL）
 
 # 为两张表添加 sparse_vector 字段（幂等，可反复执行）
 SPARSE_VECTOR_DDL = """

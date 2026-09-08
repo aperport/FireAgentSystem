@@ -1,42 +1,35 @@
 """
-向量检索引擎 — 基于 PostgreSQL + pgvector + Python rank_bm25 提供三种检索策略。
+向量检索引擎 — dense / sparse / hybrid 三路检索。
 
-✅ 已实现。检索策略：
-    1. dense（稠密检索）：PG pgvector 余弦相似度，适合语义模糊查询
-    2. sparse（稀疏检索）：Python jieba + rank_bm25，适合条款号/设备型号等精确关键词查询
-    3. hybrid（混合检索）：dense + sparse 在 Python 层 RRF 融合，兼顾语义和关键词，推荐默认使用
-
-已实现方法：
-    - dense_search()       PG pgvector 余弦相似度检索
-    - bm25_search()        jieba 分词 + BM25Okapi 关键词检索
-    - hybrid_search()      dense + sparse RRF 融合检索
-    - rrf_merge()          模块级 RRF 融合纯函数（去重 + 排名融合）
-    - _build_parent_map()  构建 source_file → 子文档列表的父文档映射
-    - rebuild_bm25_index() 从 PG 重新加载文本重建 BM25 索引
-    - initialize()         初始化 BM25 索引 + 父文档映射
-    - sparse_search()       【预留】pgvector sparsevec 原生稀疏检索（未启用）
+检索策略：
+    - dense：PG pgvector 余弦相似度（语义模糊查询）
+    - sparse：jieba + rank_bm25 内存索引（条款号 / 设备型号等精确关键词）
+    - hybrid：dense + sparse 经 rrf_merge() 做 RRF 融合（默认推荐）
 
 BM25 索引生命周期：
-    - 初始化时从 PG 加载全部 text 字段 → jieba 分词 → 构建 BM25Okapi 索引
-    - 数据入库后需调用 rebuild_bm25_index() 重建索引
+    - rebuild_bm25_index()：全表加载 text → 分词 → 建 BM25Okapi 索引
+    - 索引未构建时 bm25_search() 直接返回空
 
 ═══════════════════════════════════════════════
-稀疏向量演进路线（接口已预留，当前未启用）
+稀疏向量（sparsevec）路线：写入已实装，检索未启用
 ═══════════════════════════════════════════════
-后续稀疏向量将存入 PGV sparse_vector 字段（sparsevec 类型），
-bm25_search() 将切换为下面的 sparse_search() SQL 查询，
-届时删除内存 BM25 整套机器（分词/停用词/索引重建），
-由 collections.SPARSE_VECTOR_DDL / SPARSE_SEARCH_SQL /
-PGVectorManager.build_sparse_vector_indexes() 支撑，
-启用前请勿删除这些预留接口。
+写入已实装：db_operator 已将 BGE-M3 lexical weights 写入 sparse_vector
+sparsevec(250002)（Top-128 截断）；检索未启用，sparse_search() 仍是桩，
+当前生效路径为 bm25_search()，切换后删除 BM25 整套机器（分词 / 停用词 /
+rebuild_bm25_index / bm25_search）。
+
+启用 sparse_search() 所需（勿删）：collections.SPARSE_SEARCH_SQL、
+SPARSE_VECTOR_PLACEHOLDER、PGVectorManager.build_sparse_vector_indexes()、
+encode_query_sparse()。
 
 ⚠️ 已知问题：
-    1. 所有检索方法均为同步，但 vector_retriever.search() 已用
-       asyncio.to_thread 包装，不会阻塞事件循环
+    1. 方法均为同步，靠 vector_retriever.search() 用 asyncio.to_thread 包装，
+       新增直接调用方需自行包装
+    2. BM25 依赖全量内存语料，数据量增长后内存占用与重建耗时线性上升
 
 待优化：
-    - 中文停用词表可替换为专业停用词包
-    - hybrid_search 的两路检索可各开线程并行（当前串行）
+    - 停用词表可替换为专业停用词包
+    - hybrid_search 两路检索可并行（当前串行）
 """
 
 import hashlib
@@ -169,34 +162,6 @@ class HybridRetrievalModule:
         self.pg = pg
         self.parent_map: dict[str, list[Document]] = {}
 
-        # BM25 索引 + 原始文档（sparsevec 路线启用后整套删除）
-        self.bm25: BM25Okapi | None = None
-        self.bm25_corpus_docs: list[Document] = []
-
-    def rebuild_bm25_index(self):
-        """从 PG 重新加载全部文本，重建 BM25 索引。
-
-        sparsevec 路线启用后此方法连同 BM25 机器一并删除。
-        """
-        cur = self.pg.get_cursor()
-        cur.execute(LOAD_ALL_TEXT_SQL)
-        rows = cur.fetchall()
-        chunks = []
-        for row in rows:
-            chunks.append(
-                Document(
-                    page_content=row["text"],
-                    metadata={
-                        "id": row["id"],
-                        "category": row["category"],
-                        "source_file": row["source_file"],
-                        "source_name": row.get("source_name", ""),
-                        "title": row["title"],
-                    },
-                )
-            )
-
-        self.initialize(chunks)
 
     def initialize(self, chunks: list[Document]):
         """初始化检索系统（BM25 索引 + 父文档映射）"""
@@ -213,47 +178,6 @@ class HybridRetrievalModule:
         # 初始化 父文档映射表
         self.parent_map = self._build_parent_map()
         logger.info("父文档映射表构建完成，文档数量：{}".format(len(self.parent_map)))
-
-    def bm25_search(self, query: str, top_K: int = 5) -> list[Document]:
-        """BM25 关键词检索。
-
-        jieba 分词后查 BM25 索引，按分数降序返回 k 条数据，分数计入 metadata，
-        供以后调试或分数融合使用。
-
-        sparsevec 路线启用后由 sparse_search() 替代。
-
-        Args:
-            query: 查询关键词
-            top_K: 返回前 k 个
-
-        Returns:
-            list[Document]: 返回检索结果
-        """
-        if self.bm25 is None:
-            logger.warning("BM25 索引尚未初始化，无法进行检索")
-            return []
-        # 1. BM25 关键词检索
-        tokenized_query = _tokenize_chinese(query)
-        if not tokenized_query:
-            logger.warning("BM分词查询结果为空，无法进行检索，跳过本次查询，%s", query)
-            return []
-        # 按分数降序去 top_k
-        scores = self.bm25.get_scores(tokenized_query)
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_K]
-        docs: list[Document] = []
-        for index in top_indices:
-            score = float(scores[index])
-            if score < 0.1:
-                continue
-            src = self.bm25_corpus_docs[index]
-            new_metadata = dict(src.metadata)
-            new_metadata["score"] = score
-            new_metadata["search_type"] = "bm25"
-
-            doc = Document(page_content=src.page_content, metadata=new_metadata)
-            docs.append(doc)
-            logger.info(f"BM25 关键词检索结果：{doc.page_content}，分数：{score}")
-        return docs
 
     def sparse_search(
         self,

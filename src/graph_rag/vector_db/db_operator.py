@@ -12,9 +12,16 @@
 
 数据来源：
     - ingestion/doc_parser/ 解析后的文本
-    - ingestion/embedding.py（❌ 骨架）生成的向量
+    - ingestion/embedding.py 的 BGE-M3 全局单例（get_embedder），
+      与检索侧共用同一实例，保证入库/检索处于同一向量空间
+
+每批文档经 encode_hybrid() 一次前向得到 dense + sparse 两组权重：
+    - dense_vector  vector(1024)       BGE-M3 dense（1024 维）
+    - sparse_vector sparsevec(250002)  BGE-M3 lexical weights，Top-128 截断
+      （sparsevec HNSW 非零元素上限 1000），token id +1（索引从 1 起）
 
 写入格式遵循 collections.py 中定义的表 Schema。
+⚠️ columns 顺序与 values 拼装顺序强绑定，调整列顺序需同步修改本文件。
 数据入库后需调用 PGVectorManager.build_vector_indexes() 构建向量索引，
 以及 db_retriever.rebuild_bm25_index() 重建 BM25 索引。
 
