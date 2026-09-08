@@ -12,12 +12,10 @@
 参数中 model 建议使用轻量模型以节省成本（如 DeepSeek_FAST）。
 """
 
+from typing import Any, Union
 
-from typing import Union, Any
-
+from deepagents.middleware.summarization import SummarizationToolMiddleware, create_summarization_tool_middleware
 from langchain_core.language_models import BaseChatModel
-from deepagents.middleware.summarization import create_summarization_tool_middleware
-from deepagents.middleware.summarization import SummarizationToolMiddleware
 
 
 def build_summarization_middleware(

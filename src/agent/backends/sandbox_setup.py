@@ -14,6 +14,7 @@ OpenSandbox 沙箱初始化与文件播种模块。
 对外接口：
     setup_sandbox(config, sandbox_id) -> OpenSandboxBackend
 """
+
 import os
 import shlex
 
@@ -34,7 +35,7 @@ OPENSANDBOX_DOMAIN = os.getenv("OPENSANDBOX_DOMAIN", "api.opensandbox.io")
 OPENSANDBOX_IMAGE = os.getenv("OPENSANDBOX_IMAGE", "ubuntu")
 
 
-def setup_sandbox( sandbox_id=None, image=None, config: dict = {}) -> OpenSandboxBackend:
+def setup_sandbox(sandbox_id=None, image=None, config: dict = {}) -> OpenSandboxBackend:
     """
     尝试按照id重连沙箱，若未找到，或者沙箱已失效，则创建一个新的沙箱，并将技能文件播种到沙箱中，以及python必要的环境变量
     和依赖，并返回一个OpenSandboxBackend对象
@@ -72,7 +73,7 @@ def setup_sandbox( sandbox_id=None, image=None, config: dict = {}) -> OpenSandbo
             logger.warning(f"沙箱重连失败 ({sandbox_id}): {e}，将创建新沙箱")
             sandbox = None
 
-    if  not sandbox :
+    if not sandbox:
         image = image or config.get("image", None) or OPENSANDBOX_IMAGE
         logger.info(f"创建新沙箱，镜像: {image}")
         sandbox = SandboxSync.create(
@@ -109,7 +110,7 @@ def create_environment_variables(backend: OpenSandboxBackend) -> None:
     """
     # 检测环境，如果不存在则创建
     logger.info("正在创建 skills-venv 环境...")
-    if backend.execute(f"test -d /opt/skills-venv").exit_code == 0:
+    if backend.execute("test -d /opt/skills-venv").exit_code == 0:
         logger.info("skills-venv 已存在，跳过创建")
     else:
         result = backend.execute("python3 -m venv /opt/skills-venv")

@@ -33,13 +33,14 @@
     - VectorRetriever 初始化时应触发 BM25 索引构建
     - 增加 retrieval_evaluator 集成：检索结果为空时自动 fallback
 """
+
 import asyncio
 
 from langchain_core.documents import Document
-from graph_rag.vector_db.db_retriever import HybridRetrievalModule
-from graph_rag.context_fusion import ContextFusionModule
-from util_tools.logger import get_logger
 
+from graph_rag.context_fusion import ContextFusionModule
+from graph_rag.vector_db.db_retriever import HybridRetrievalModule
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -53,9 +54,7 @@ class VectorRetriever:
 
     def __init__(self, retrieval_module: HybridRetrievalModule):
         self.retrieval_module = retrieval_module
-        self.fusion_module = ContextFusionModule(
-            parent_map=retrieval_module.parent_map
-        )
+        self.fusion_module = ContextFusionModule(parent_map=retrieval_module.parent_map)
 
     async def search(
         self,
@@ -88,18 +87,30 @@ class VectorRetriever:
         # 1. 按策略分发检索（to_thread 避免同步 DB 调用阻塞事件循环）
         if search_type == "dense":
             docs = await asyncio.to_thread(
-                self.retrieval_module.dense_search, query, top_k=top_k, category=category, score_threshold=score_threshold
+                self.retrieval_module.dense_search,
+                query,
+                top_k=top_k,
+                category=category,
+                score_threshold=score_threshold,
             )
         elif search_type == "sparse":
             docs = await asyncio.to_thread(self.retrieval_module.bm25_search, query, top_K=top_k)
         elif search_type == "hybrid":
             docs = await asyncio.to_thread(
-                self.retrieval_module.hybrid_search, query, top_k=top_k, category=category, score_threshold=score_threshold
+                self.retrieval_module.hybrid_search,
+                query,
+                top_k=top_k,
+                category=category,
+                score_threshold=score_threshold,
             )
         else:
             logger.warning(f"未知的检索类型：{search_type}，回退到 hybrid")
             docs = await asyncio.to_thread(
-                self.retrieval_module.hybrid_search, query, top_k=top_k, category=category, score_threshold=score_threshold
+                self.retrieval_module.hybrid_search,
+                query,
+                top_k=top_k,
+                category=category,
+                score_threshold=score_threshold,
             )
 
         # 2. Token 预算截断

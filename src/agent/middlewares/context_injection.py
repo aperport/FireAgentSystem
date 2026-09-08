@@ -20,16 +20,18 @@ Hook: before_agent / abefore_agent
 
 from typing import Any
 
-from util_tools.logger import get_logger
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import SystemMessage
+
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class ContextInjectionMiddleware(AgentMiddleware):
     """上下文注入中间件，一般注入用户信息，用于后续区分识别用户偏好和权限"""
-    def before_agent(self,state : dict[str, Any],runtime:Any) -> dict[str, Any] | None:
+
+    def before_agent(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
         """
         同步函数，从runtime.context中获取Id，usename等信息，将用户信息注入到systemmessage信息中
         args:
@@ -37,9 +39,9 @@ class ContextInjectionMiddleware(AgentMiddleware):
             runtime : Any
         return:
             dict[str, Any]
-        """ 
+        """
         # 从runtime.context中获取Id，usename等信息，没有返回空字典
-        ctx = getattr(runtime,"context",{})
+        ctx = getattr(runtime, "context", {})
         """
         与上文等价
         try:
@@ -50,7 +52,7 @@ class ContextInjectionMiddleware(AgentMiddleware):
         if not ctx:
             logger.warning("context is empty, skip context injection")
             return None
-        
+
         user_id = getattr(ctx, "user_id", None)
         if not user_id:
             logger.warning("user_id is empty, skip context injection")
@@ -66,9 +68,9 @@ class ContextInjectionMiddleware(AgentMiddleware):
             f"\n请首先使用 read_file 读取上述偏好文件了解用户偏好。"
             f"\n（recent_equipment, recent_zones 和 recent_queries 由系统自动维护，你无需手动更新）"
         )
-        return {"messages":[SystemMessage(content=notice)]}
+        return {"messages": [SystemMessage(content=notice)]}
 
-    async def abefore_agent(self,state : dict[str, Any],runtime:Any) -> dict[str, Any] | None:
+    async def abefore_agent(self, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
         """
         同函数的异步函数，将用户信息注入到systemmessage信息中，底层逻辑不涉及IO可以直接同步调用
         args:
@@ -77,4 +79,4 @@ class ContextInjectionMiddleware(AgentMiddleware):
         return:
             dict[str, Any]
         """
-        return  self.before_agent(state,runtime)
+        return self.before_agent(state, runtime)

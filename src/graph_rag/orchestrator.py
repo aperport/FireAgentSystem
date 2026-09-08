@@ -13,17 +13,19 @@ GraphRAG 查询编排器 — 整个 GraphRAG Pipeline 的核心入口。
 由 MCP Tool (knowledge_tools.py 中的 graph_rag_search) 调用。
 
 """
+
 import asyncio
-import sys, os
+import os
+import sys
 import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from langchain_core.language_models import BaseChatModel
+
 from graph_rag.config import get_settings
 from graph_rag.context_fusion import ContextFusionModule
 from graph_rag.entity_extractor import DocumentGraphExtractionPipeline, ExtractResult
-
 from graph_rag.graph_traverser import GraphTraverser
 from graph_rag.json_save import append_json_item
 from graph_rag.vector_db.collections import get_pg_instance
@@ -58,6 +60,7 @@ class _BM25Index:
     首次访问时从 PG 加载全表文本构建 BM25Okapi 索引，后续直接复用。
     数据入库后调用 rebuild() 重建。
     """
+
     _instance: HybridRetrievalModule | None = None
     _lock = threading.Lock()
 
@@ -95,10 +98,14 @@ class _BM25Index:
 # ===================== 全局单例：Neo4j 驱动 =====================
 
 
-
-
 class GraphRAGOrchestrator:
-    def __init__(self, graph_traverser: GraphTraverser, doc_extraction:DocumentGraphExtractionPipeline, context_fusion: ContextFusionModule, vector_retriever: VectorRetriever):
+    def __init__(
+        self,
+        graph_traverser: GraphTraverser,
+        doc_extraction: DocumentGraphExtractionPipeline,
+        context_fusion: ContextFusionModule,
+        vector_retriever: VectorRetriever,
+    ):
         self.retrieval_module = _BM25Index.get()
         self.graph_traverser = graph_traverser
         self.doc_extraction = doc_extraction
@@ -110,33 +117,41 @@ class GraphRAGOrchestrator:
         entity_result = await self.doc_extraction.extract(query)
         # 2. 对实体进行向量检索与图遍历
         # 2.1 向量检索
-        vector_task = self.vector_retriever.search(query=query,top_k=top_k)
+        vector_task = self.vector_retriever.search(query=query, top_k=top_k)
 
         # 2.2 图遍历
         async def _graph_traverser():
-            if  isinstance(entity_result, ExtractResult):
-                return  await self.graph_traverser.traverse(entity_result)
+            if isinstance(entity_result, ExtractResult):
+                return await self.graph_traverser.traverse(entity_result)
             else:
                 logger.info("提取的类型不正确")
-            return   []
+            return []
 
-        graph_task =  _graph_traverser()
+        graph_task = _graph_traverser()
 
         # 前面创建协程，不要加await，此处使用asyncio.gather并发执行两方法
         vector_result, graph_result = await asyncio.gather(vector_task, graph_task)
         # 3. 对检索结果进行去重融合
-        result = await self.context_fusion.fuse(vector_docs=vector_result, graph_records=graph_result) # type: ignore
+        result = await self.context_fusion.fuse(vector_docs=vector_result, graph_records=graph_result)  # type: ignore
 
         # 4. 将答案存入json，model_dump是pydantic的方法，会将这个类的属性转换成字典
         Data = {
             "query": query,
             "entity_result": entity_result.model_dump() if hasattr(entity_result, "model_dump") else str(entity_result),
-            "vector_result": [doc.model_dump() if hasattr(doc, "model_dump") else {"page_content": doc.page_content, "metadata": doc.metadata} for doc in vector_result],
+            "vector_result": [
+                doc.model_dump()
+                if hasattr(doc, "model_dump")
+                else {"page_content": doc.page_content, "metadata": doc.metadata}
+                for doc in vector_result
+            ],
             "graph_result": graph_result,
-            "result": [doc.model_dump() if hasattr(doc, "model_dump") else {"page_content": doc.page_content, "metadata": doc.metadata} for doc in result]
+            "result": [
+                doc.model_dump()
+                if hasattr(doc, "model_dump")
+                else {"page_content": doc.page_content, "metadata": doc.metadata}
+                for doc in result
+            ],
         }
         await append_json_item(dir_name="./data/", item=Data, file_name="T")
 
         return result
-
-

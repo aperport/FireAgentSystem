@@ -35,16 +35,15 @@
     - LLM 生成查询结果的安全性校验（防止误写操作）
 """
 
-
-
+import os
+import sys
 from typing import LiteralString
 
 from langchain_core.language_models import BaseChatModel
 from neo4j import AsyncDriver
-import sys, os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from graph_rag.config import get_settings
 from graph_rag.entity_extractor import Entity, ExtractResult
 from graph_rag.graph_db.connection import Neo4jDrivers, get_neo4j_driver
 from graph_rag.graph_db.queries import GraphQueries
@@ -55,46 +54,47 @@ logger = get_logger(__name__)
 
 class GraphTraverser:
     """
-        遍历图谱，获取关联上下文,根据提取的关键词，采取逐层降级检索的方式
-        1. 判断类型中是否存在type，如果存在，根据type选择模板进行检索
-        2. 若为小模型提取或其他原因，type不可知，提取关键词进行一次图遍历，拿到类型后，继续按照模板进行检索。
-        3. 若图遍历未找到具体节点或者类型确实，那么llm生成查询语句，再次进行检索。
-        4. 若实在未找到，那么返回空，并提示未找到数据
-        5. 中间查询到type后，回填如类型，可能后续有用。
+    遍历图谱，获取关联上下文,根据提取的关键词，采取逐层降级检索的方式
+    1. 判断类型中是否存在type，如果存在，根据type选择模板进行检索
+    2. 若为小模型提取或其他原因，type不可知，提取关键词进行一次图遍历，拿到类型后，继续按照模板进行检索。
+    3. 若图遍历未找到具体节点或者类型确实，那么llm生成查询语句，再次进行检索。
+    4. 若实在未找到，那么返回空，并提示未找到数据
+    5. 中间查询到type后，回填如类型，可能后续有用。
     """
-    def __init__(self,Neo4jDriver:Neo4jDrivers|None=None,llm:BaseChatModel|None=None):
+
+    def __init__(self, Neo4jDriver: Neo4jDrivers | None = None, llm: BaseChatModel | None = None):
         self.Neo4jDriver = Neo4jDriver or get_neo4j_driver()
         self.llm = llm
 
     async def traverse(self, extract_result: ExtractResult):
 
-      a_driver = await self.Neo4jDriver._get_async_driver()
-      for entitie in getattr(extract_result, "entities", [] ):
-         if not entitie:
-            logger.info("提取结果为空，跳过该实体")
-            continue
-         if entitie.type.lower() in ["module", "regulation", "equipment"]:
-            logger.info("类型为 %s，进行图遍历", entitie.type)
-            # 进行图遍历
-            result = await self.by_module_query(entitie,a_driver)
-            return result
-         else:
-            # 如果图反查结果存在，则取出类型回填入关键词类，并进行遍历，否则执行llm查询的函数
-            logger.info("类型为 %s，无法进行图遍历，将优先查询提取词类型", entitie.type) 
-            new_entitie = await self.query_type(entitie,a_driver)
-            # 判断回填的type是否存在模板
-            if new_entitie.type.lower() in ["module", "regulation", "equipment"]: # type: ignore
-                result = await self.by_module_query(new_entitie,a_driver) # type: ignore
+        a_driver = await self.Neo4jDriver._get_async_driver()
+        for entitie in getattr(extract_result, "entities", []):
+            if not entitie:
+                logger.info("提取结果为空，跳过该实体")
+                continue
+            if entitie.type.lower() in ["module", "regulation", "equipment"]:
+                logger.info("类型为 %s，进行图遍历", entitie.type)
+                # 进行图遍历
+                result = await self.by_module_query(entitie, a_driver)
                 return result
             else:
-                logger.info("类型为 %s，无法进行图遍历，将进行llm查询", new_entitie.type) # type: ignore
-                result = await self.llm_query(new_entitie,a_driver) # type: ignore
-                if not result:
-                    logger.info("LLM图遍历结果为空")
-                    return []
-                return result
+                # 如果图反查结果存在，则取出类型回填入关键词类，并进行遍历，否则执行llm查询的函数
+                logger.info("类型为 %s，无法进行图遍历，将优先查询提取词类型", entitie.type)
+                new_entitie = await self.query_type(entitie, a_driver)
+                # 判断回填的type是否存在模板
+                if new_entitie.type.lower() in ["module", "regulation", "equipment"]:  # type: ignore
+                    result = await self.by_module_query(new_entitie, a_driver)  # type: ignore
+                    return result
+                else:
+                    logger.info("类型为 %s，无法进行图遍历，将进行llm查询", new_entitie.type)  # type: ignore
+                    result = await self.llm_query(new_entitie, a_driver)  # type: ignore
+                    if not result:
+                        logger.info("LLM图遍历结果为空")
+                        return []
+                    return result
 
-    async def by_module_query(self,entity:Entity,driver:AsyncDriver):
+    async def by_module_query(self, entity: Entity, driver: AsyncDriver):
         """
         根据模板进行图遍历
         args:
@@ -108,7 +108,7 @@ class GraphTraverser:
             query: LiteralString = GraphQueries.system_operations_navigation
             params = {"module_name": entity.name}
             async with driver.session(database=self.Neo4jDriver.database) as session:
-                query_result = await session.run(query, params) 
+                query_result = await session.run(query, params)
                 records = await query_result.data()
             result = records
 
@@ -120,19 +120,20 @@ class GraphTraverser:
                 query_result = await session.run(query, params)
                 records = await query_result.data()
             result = records
-        else :
+        else:
             # 关键词为equipment，按照模板进行图遍历
             query: LiteralString = GraphQueries.equipment_dependency
             params = {"equipment_name": entity.name}
             async with driver.session(database=self.Neo4jDriver.database) as session:
-                query_result = await session.run(query, params) 
+                query_result = await session.run(query, params)
                 records = await query_result.data()
             result = records
         if not result:
             logger.info("图遍历结果为空，图数据库无相应数据")
             return []
         return result
-    async def query_type(self,entity:Entity,driver:AsyncDriver):
+
+    async def query_type(self, entity: Entity, driver: AsyncDriver):
         """
         根据提取的关键词，去图数据进行查询，找出其类型，回填至Entity
         args:
@@ -169,7 +170,8 @@ class GraphTraverser:
             entity.type = node_labels[0].lower()
             logger.info("实体[%s]类型回填为非标准标签: %s", entity.name, entity.type)
         return entity
-    async def llm_query(self,entity:Entity,driver:AsyncDriver):
+
+    async def llm_query(self, entity: Entity, driver: AsyncDriver):
         """
         根据llm生成的查询语句进行图遍历,返回结果
         args:
@@ -185,7 +187,7 @@ class GraphTraverser:
         result = await llm.query_llm(entity)
         if not result:
             logger.info("LLM未正常生成查询语句，无法进行图遍历")
-            return ("LLM生成查询语句失败")
+            return "LLM生成查询语句失败"
         query = result["query"]
         params = result.get("params", {})
         async with driver.session(database=self.Neo4jDriver.database) as session:
@@ -193,8 +195,5 @@ class GraphTraverser:
             records = await query_result.data()
         if not records:
             logger.info("图遍历结果为空，图数据库无相应数据")
-            return ("图遍历结果为空，图数据库无相应数据")
+            return "图遍历结果为空，图数据库无相应数据"
         return records
-        
-        
- 

@@ -19,12 +19,14 @@
     2. _estimate_tokens() 为粗略估算，可替换为 tiktoken 精确计算
     3. 中文 Unicode 范围 '一'~'鿿' 不完整，应扩展到 CJK 统一表意文字区块
 """
+
 import asyncio
 import hashlib
 from typing import Any
-from langchain_core.documents import Document
-from util_tools.logger import get_logger
 
+from langchain_core.documents import Document
+
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -152,9 +154,7 @@ class ContextFusionModule:
                 seen_keys.add(dedup_key)
 
                 # 格式化 page_content：将属性转为 "键: 值" 文本
-                content_lines = [
-                    f"{k}: {v}" for k, v in node_props.items() if v is not None
-                ]
+                content_lines = [f"{k}: {v}" for k, v in node_props.items() if v is not None]
                 page_content = "\n".join(content_lines)
 
                 # 构建 metadata
@@ -170,14 +170,14 @@ class ContextFusionModule:
                     if v is not None:
                         metadata[f"graph_{k}"] = v
 
-                docs.append(Document(
-                    page_content=page_content,
-                    metadata=metadata,
-                ))
+                docs.append(
+                    Document(
+                        page_content=page_content,
+                        metadata=metadata,
+                    )
+                )
 
-        logger.info(
-            f"图记录转换完成：{len(records)} 条记录 → {len(docs)} 份 Document"
-        )
+        logger.info(f"图记录转换完成：{len(records)} 条记录 → {len(docs)} 份 Document")
         return docs
 
     # ────────────────────── 1. 去重 ──────────────────────
@@ -211,9 +211,7 @@ class ContextFusionModule:
             if pg_id is not None:
                 dedup_key = f"id::{pg_id}"
             else:
-                content_hash = hashlib.md5(
-                    doc.page_content[:200].encode("utf-8")
-                ).hexdigest()
+                content_hash = hashlib.md5(doc.page_content[:200].encode("utf-8")).hexdigest()
                 dedup_key = f"hash::{content_hash}"
 
             source_name = doc.metadata.get("search_type", "unknown")
@@ -227,9 +225,7 @@ class ContextFusionModule:
                 if len(doc.metadata) > len(existing.metadata):
                     seen[dedup_key] = doc
                 dedup_sources[dedup_key].append(source_name)
-                logger.debug(
-                    f"去重：文档 [{dedup_key}] 在 {source_name} 中重复，已合并"
-                )
+                logger.debug(f"去重：文档 [{dedup_key}] 在 {source_name} 中重复，已合并")
 
         # 将去重来源信息写入保留文档的 metadata
         result: list[Document] = []
@@ -238,10 +234,12 @@ class ContextFusionModule:
             if len(sources) > 1:
                 new_metadata = dict(doc.metadata)
                 new_metadata["dedup_sources"] = sources
-                result.append(Document(
-                    page_content=doc.page_content,
-                    metadata=new_metadata,
-                ))
+                result.append(
+                    Document(
+                        page_content=doc.page_content,
+                        metadata=new_metadata,
+                    )
+                )
             else:
                 result.append(doc)
 
@@ -297,8 +295,9 @@ class ContextFusionModule:
 
         sorted_docs = sorted(docs, key=_extract_score, reverse=True)
         logger.info(
-            f"相关性排序完成：{len(sorted_docs)} 份文档，"
-            f"最高分={_extract_score(sorted_docs[0]):.4f}" if sorted_docs else "相关性排序完成：无文档"
+            f"相关性排序完成：{len(sorted_docs)} 份文档，最高分={_extract_score(sorted_docs[0]):.4f}"
+            if sorted_docs
+            else "相关性排序完成：无文档"
         )
         return sorted_docs
 
@@ -368,10 +367,12 @@ class ContextFusionModule:
                 new_metadata = dict(doc.metadata)
                 new_metadata["context_fill"] = True
                 new_metadata["source_hit_id"] = hit_id
-                result.append(Document(
-                    page_content=doc.page_content,
-                    metadata=new_metadata,
-                ))
+                result.append(
+                    Document(
+                        page_content=doc.page_content,
+                        metadata=new_metadata,
+                    )
+                )
 
             logger.info(
                 f"上下文回填：source_file={source_file}，命中位置={hit_index}，"
@@ -389,7 +390,7 @@ class ContextFusionModule:
         中文约 1.5 字/token，英文约 4 字符/token。
         采用简单启发式：中文按 1.5 字/token，其余按 4 字符/token。
         """
-        chinese_chars = sum(1 for ch in text if '一' <= ch <= '鿿')
+        chinese_chars = sum(1 for ch in text if "一" <= ch <= "鿿")
         other_chars = len(text) - chinese_chars
         return int(chinese_chars / 1.5 + other_chars / 4)
 
@@ -438,10 +439,7 @@ class ContextFusionModule:
                 used_tokens = budget
 
             # 预算用完，停止
-            logger.info(
-                f"Token 预算截断：已用 {used_tokens}/{budget}，"
-                f"保留 {len(result)}/{len(docs)} 份文档"
-            )
+            logger.info(f"Token 预算截断：已用 {used_tokens}/{budget}，保留 {len(result)}/{len(docs)} 份文档")
             break
 
         return result
@@ -476,16 +474,11 @@ class ContextFusionModule:
             list[Document]: 融合后的最终文档列表
         """
         # Step 0: 图记录 → Document（CPU 密集，放入线程池）
-        graph_docs = await asyncio.to_thread(
-            self.graph_records_to_documents, graph_records, graph_hop_count
-        )
+        graph_docs = await asyncio.to_thread(self.graph_records_to_documents, graph_records, graph_hop_count)
 
         # 合并多路文档
         all_docs = vector_docs + graph_docs
-        logger.info(
-            f"融合管线启动：向量文档={len(vector_docs)}，"
-            f"图遍历文档={len(graph_docs)}，合计={len(all_docs)}"
-        )
+        logger.info(f"融合管线启动：向量文档={len(vector_docs)}，图遍历文档={len(graph_docs)}，合计={len(all_docs)}")
 
         if not all_docs:
             logger.warning("融合管线：输入文档为空，直接返回")
@@ -498,15 +491,11 @@ class ContextFusionModule:
         docs = await asyncio.to_thread(self.sort_by_relevance, docs)
 
         # Step 3: 父文档回填（CPU 密集，放入线程池，使用注入的 parent_map）
-        docs = await asyncio.to_thread(
-            self.attach_parent_documents, docs, self._parent_map, parent_top_n
-        )
+        docs = await asyncio.to_thread(self.attach_parent_documents, docs, self._parent_map, parent_top_n)
 
         # Step 4: Token 预算截断（CPU 密集，放入线程池）
         if token_budget > 0:
-            docs = await asyncio.to_thread(
-                self.truncate_to_budget, docs, token_budget
-            )
+            docs = await asyncio.to_thread(self.truncate_to_budget, docs, token_budget)
 
         logger.info(f"融合管线完成：最终文档数={len(docs)}")
         return docs

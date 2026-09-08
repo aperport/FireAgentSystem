@@ -1,15 +1,18 @@
 """
 实体抽取模块 — 通用实体/关系抽取引擎，同时服务于查询端和入库端。
 """
+
 import asyncio
-import time
-from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
-from util_tools.logger import get_logger
-from langchain_openai import ChatOpenAI
-from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
-from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
 from functools import lru_cache
+import time
+
+from langchain_core.runnables import RunnableConfig
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
+from transformers import AutoModelForTokenClassification, AutoTokenizer, pipeline
+
+from graph_rag.graph_db.schema import NODE_TYPES, REL_TYPES
+from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -27,6 +30,7 @@ def _get_ner_pipeline(model_name: str = "Davlan/bert-base-multilingual-cased-ner
 
 
 # 定义LLM输出结构
+
 
 class Entity(BaseModel):
     name: str
@@ -53,6 +57,7 @@ class ExtractResult(BaseModel):
         ]
     )
     """
+
     entities: list[Entity]
     relations: list[Relation]
 
@@ -70,8 +75,10 @@ class NerEntityExtractor:
         使用小模型对问题进行抽取，之后按照模型提取字段映射返回数据
         """
         row_result = self.pipe(query)
-        return [{"text": item["word"], "start": item["start"], "end": item["end"], "source": "Local_BERT"}
-                for item in row_result]
+        return [
+            {"text": item["word"], "start": item["start"], "end": item["end"], "source": "Local_BERT"}
+            for item in row_result
+        ]
 
     async def extract(self, query: str) -> list[dict]:
         """
@@ -137,6 +144,7 @@ class LlmEntityExtractor:
         利用 LLM 进行实体抽取，返回 ExtractResult（异步调用）,为防止模型不支持openAI格式化，使用两种方式。
         """
         try:
+
             async def _openai_structured_output() -> ExtractResult | None:
                 # 方式1：OpenAI structured output ,有些模型可能不支持
                 entily_llm = self.llm.with_structured_output(ExtractResult)
@@ -148,7 +156,9 @@ class LlmEntityExtractor:
 
             async def _general_output() -> ExtractResult | None:
                 # 方式2，通用输出格式化，
-                response = await self.llm.ainvoke(self._build_extract_prompt(query, context), config=self.config, response_format=ExtractResult)
+                response = await self.llm.ainvoke(
+                    self._build_extract_prompt(query, context), config=self.config, response_format=ExtractResult
+                )
                 if isinstance(response, ExtractResult):
                     return response
                 response = None
@@ -198,10 +208,8 @@ class EntityFusionService:
         return shorter > 0 and overlap / shorter >= threshold
 
     def fuse_entities(
-            self,
-            llm_result: ExtractResult | None,
-            ner_result: list,
-            threshold: float = 0.5) -> ExtractResult:
+        self, llm_result: ExtractResult | None, ner_result: list, threshold: float = 0.5
+    ) -> ExtractResult:
         """
         融合两个实体列表，返回融合后的实体列表。
         llm的全部保留，ner模型进行补充
@@ -231,14 +239,15 @@ class EntityFusionService:
         return ExtractResult(entities=merged_entities, relations=getattr(llm_result, "relations", []))
 
 
-
-
 class DocumentGraphExtractionPipeline:
-    def __init__(self, llm_entity: LlmEntityExtractor, ner_entity: NerEntityExtractor, entity_fusion_service: EntityFusionService) -> None:
+    def __init__(
+        self, llm_entity: LlmEntityExtractor, ner_entity: NerEntityExtractor, entity_fusion_service: EntityFusionService
+    ) -> None:
         self.llm_entity = llm_entity
         self.ner_entity = ner_entity
         self.entity_fusion_service = entity_fusion_service
-    async def extract(self,query: str, context: str | None = None) -> ExtractResult:
+
+    async def extract(self, query: str, context: str | None = None) -> ExtractResult:
         """
         业务编排,
         1. 并发创建两个任务

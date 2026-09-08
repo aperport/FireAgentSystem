@@ -26,33 +26,59 @@ Hook: aafter_agent
     middleware = MemoryUpdateMiddleware(model=SUMMARY_MODEL)
 """
 
+from datetime import datetime
 import json
 from typing import Any, Dict
-from datetime import datetime
-from langchain.agents.middleware.types import AgentState
-from langchain_core.messages import BaseMessage
-from langchain.chat_models import BaseChatModel
-from util_tools.logger import get_logger
+
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import AgentState
+from langchain.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+
+from util_tools.logger import get_logger
+
 logger = get_logger(__name__)
 
 
-
 class MemoryUpdateMiddlewareTools:
-
     def __init__(self):
         self.business_keywords = [
-            "巡检", "维保", "火警", "故障", "能耗", "值班",
-            "用电", "用水", "用气",
-            "烟感", "喷淋", "设备", "消火栓", "报警", "探测器",
-            "灭火", "消防", "配电", "泵", "电源",
+            "巡检",
+            "维保",
+            "火警",
+            "故障",
+            "能耗",
+            "值班",
+            "用电",
+            "用水",
+            "用气",
+            "烟感",
+            "喷淋",
+            "设备",
+            "消火栓",
+            "报警",
+            "探测器",
+            "灭火",
+            "消防",
+            "配电",
+            "泵",
+            "电源",
         ]
         self.skip_words = [
-            "你好", "在吗", "谢谢", "好的", "知道了", "嗯", "哦",
-            "hi", "hello", "ok", "thanks",
+            "你好",
+            "在吗",
+            "谢谢",
+            "好的",
+            "知道了",
+            "嗯",
+            "哦",
+            "hi",
+            "hello",
+            "ok",
+            "thanks",
         ]
 
-    def _is_meaningful_last(self, message:list[BaseMessage])->str | None:
+    def _is_meaningful_last(self, message: list[BaseMessage]) -> str | None:
         """
         判断最后一条用户消息是否有意义
         """
@@ -66,28 +92,26 @@ class MemoryUpdateMiddlewareTools:
         # 如果没找到用户消息或者最后一条用户消息为空，返回None
         if not last_user_message:
             return None
-        
+
         content = last_user_message.content
         if isinstance(content, list):
-            content = " ".join(
-            part.get("text", "") if isinstance(part, dict) else str(part)
-            for part in content
-            )
+            content = " ".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in content)
         content = str(content).strip()  # 去两边空格
 
         if not content:
             return None
-        
+
         # 跳过无意义消息
         content_lower = content.lower().replace(" ", "")  # 删除字符串空格
         for pattern in self.skip_words:
             if pattern.lower().replace(" ", "") in content_lower:
                 return None
-            
+
         # 检查是否包含关键词信息
         has_keyword = any(
-            keyword.lower() in content_lower for keyword in self.business_keywords)  # 是否含有任意一个关键词
-        
+            keyword.lower() in content_lower for keyword in self.business_keywords
+        )  # 是否含有任意一个关键词
+
         # 兜底：检查是否委派了子 Agent（messages 中有 task 工具调用）(工具调用这一块需要灵活修改)
         if not has_keyword:
             has_subagent_call = False
@@ -103,25 +127,26 @@ class MemoryUpdateMiddlewareTools:
                 return None
 
         return content
-    
-    def  _extract_ai_summary(self, message:list[BaseMessage])->str | None:
+
+    def _extract_ai_summary(self, message: list[BaseMessage]) -> str | None:
         """
         提取最后一条AI消息的前300字符作为摘要
-        """ 
+        """
         for msg in reversed(message):
             if getattr(msg, "type", None) == "ai":
                 content = msg.content
                 if isinstance(content, list):
                     content = " ".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in content
+                        part.get("text", "") if isinstance(part, dict) else str(part) for part in content
                     )
                 content = str(content).strip()  # 去两边空格
                 return content[:300]
         # 如果没有找到AI消息，返回空字符串
         return ""
-    
-    async def _extract_entities(self,model:BaseChatModel,user_message:str,ai_summary:str | None = None)->Dict[str,Any]:
+
+    async def _extract_entities(
+        self, model: BaseChatModel, user_message: str, ai_summary: str | None = None
+    ) -> Dict[str, Any]:
         """
         利用大语言模型对用户查询关键词进行提取
         args:
@@ -131,7 +156,6 @@ class MemoryUpdateMiddlewareTools:
         return:
             entities
         """
-
 
         # 消防后勤场景实体提取
         prompt = f"""从以下消防后勤对话中提取关键实体。
@@ -147,26 +171,20 @@ AI回复摘要：{ai_summary}
 
 仅返回JSON对象，不要包含其他文字：
 {{"equipment": ["设备A", "设备B"], "zones": ["区域A"], "query": "简要摘要"}}"""
-        
-
-
 
         try:
             response = await model.ainvoke(prompt)
-            
+
             # 从回复中提取json
             text = response.content
             if isinstance(text, list):
-                text = " ".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part)
-                    for part in text
-                )
-            text = str(text).strip()            
+                text = " ".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in text)
+            text = str(text).strip()
             # 提取json块，通过位置提取
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1 and end > start:
-                result = json.loads(text[start:end + 1])
+                result = json.loads(text[start : end + 1])
                 return {
                     "equipment": result.get("equipment", []),
                     "zones": result.get("zones", []),
@@ -176,14 +194,13 @@ AI回复摘要：{ai_summary}
             logger.warning("MemoryUpdateMiddleware: LLM 提取失败，跳过本次更新", exc_info=True)
 
         return {"equipment": [], "query": "", "zones": []}
-    
 
-    def _create_file_value(self,content_str: str) -> dict:
+    def _create_file_value(self, content_str: str) -> dict:
         """
         创建 StoreBackend 兼容的文件值（与 deepagents.backends.utils.create_file_data 一致）。
         """
         lines = content_str.split("\n")
-        now = datetime.now(datetime.timezone.utc).isoformat() # type: ignore
+        now = datetime.now(datetime.timezone.utc).isoformat()  # type: ignore
         return {
             "content": lines,
             "created_at": now,
@@ -192,96 +209,101 @@ AI回复摘要：{ai_summary}
 
 
 class MemoryUpdateMiddleware(AgentMiddleware):
-   """
-   人为干预，在agent回复后根据信息自动更新用户偏好
-   """ 
-   def __init__(self,model:BaseChatModel):
-       self.model = model
-    
-    #同步钩子，不执行操作
-   def after_agent(self, state: AgentState[Any], runtime: Any) -> Dict[str, Any] | None:
-       return None
-   
-   # 异步钩子
-   async def aafter_agent(self, state:Dict[str,Any], runtime:Any)->Dict[str,Any] | None:
-       """
-       Agent回复后触发，提取实体并更新记忆
-       args:
-           state: 
-           runtime: 
-       """
-       try:
-           # 1.获取user_id
-           ctx = getattr(runtime, "context", {})
-           if not ctx:
+    """
+    人为干预，在agent回复后根据信息自动更新用户偏好
+    """
+
+    def __init__(self, model: BaseChatModel):
+        self.model = model
+
+    # 同步钩子，不执行操作
+    def after_agent(self, state: AgentState[Any], runtime: Any) -> Dict[str, Any] | None:
+        return None
+
+    # 异步钩子
+    async def aafter_agent(self, state: Dict[str, Any], runtime: Any) -> Dict[str, Any] | None:
+        """
+        Agent回复后触发，提取实体并更新记忆
+        args:
+            state:
+            runtime:
+        """
+        try:
+            # 1.获取user_id
+            ctx = getattr(runtime, "context", {})
+            if not ctx:
                 return None
-           user_id = getattr(ctx, "user_id", None)
-           if not user_id:
-               return None
-           
-           # 2.获取消息列表
-           messages:list[BaseMessage] = getattr(state, "messages", [])
-           if not messages:
-               return None
-           
-           # 3.判断是否需要更新
-           tools = MemoryUpdateMiddlewareTools()
-           user_messages = tools._is_meaningful_last(messages)
-           if not user_messages:
-               return None
-           
-           # 4.获取AI摘要
-           ai_summary = tools._extract_ai_summary(messages)
+            user_id = getattr(ctx, "user_id", None)
+            if not user_id:
+                return None
 
-           # 5.LLM提取实体
-           entities = await tools._extract_entities(self.model,user_messages,ai_summary)
-           equipment = entities.get("equipment", [])
-           zones = entities.get("zones", [])
-           query = entities.get("query", "")
-           if not equipment and not zones and not query:
-               return None
-           logger.info(f"已提取实体，设备：{equipment}, 区域：{zones}, 查询：{query}")
+            # 2.获取消息列表
+            messages: list[BaseMessage] = getattr(state, "messages", [])
+            if not messages:
+                return None
 
-           # 6.从 StoreBackend 中读取用户已有的偏好文件。
-           store = getattr(runtime, "store", None)
-           if not store:
-               logger.warning("MemoryUpdateMiddleware: 未找到 StoreBackend，跳过本次更新")
-               return None
-           
-           namespace = (user_id,)
-           key = f"/{user_id}/preferences.md"
+            # 3.判断是否需要更新
+            tools = MemoryUpdateMiddlewareTools()
+            user_messages = tools._is_meaningful_last(messages)
+            if not user_messages:
+                return None
 
-           try:
-               item = await store.aget(namespace, key)
-           except Exception as e:
-               item = None
+            # 4.获取AI摘要
+            ai_summary = tools._extract_ai_summary(messages)
+
+            # 5.LLM提取实体
+            entities = await tools._extract_entities(self.model, user_messages, ai_summary)
+            equipment = entities.get("equipment", [])
+            zones = entities.get("zones", [])
+            query = entities.get("query", "")
+            if not equipment and not zones and not query:
+                return None
+            logger.info(f"已提取实体，设备：{equipment}, 区域：{zones}, 查询：{query}")
+
+            # 6.从 StoreBackend 中读取用户已有的偏好文件。
+            store = getattr(runtime, "store", None)
+            if not store:
+                logger.warning("MemoryUpdateMiddleware: 未找到 StoreBackend，跳过本次更新")
+                return None
+
+            namespace = (user_id,)
+            key = f"/{user_id}/preferences.md"
+
+            try:
+                item = await store.aget(namespace, key)
+            except Exception:
+                item = None
 
             # 7.解析现有内容或者创建默认内容
-           current_lines:list[str] = []
-           if item and hasattr(item,"value"):
-               value = item.value
-               if isinstance(value, dict):
-                   content = value.get("content", [])
-                   if isinstance(content, list):
-                       current_lines = content  # content 已经是 list[str]
-                   elif isinstance(content, str):
+            current_lines: list[str] = []
+            if item and hasattr(item, "value"):
+                value = item.value
+                if isinstance(value, dict):
+                    content = value.get("content", [])
+                    if isinstance(content, list):
+                        current_lines = content  # content 已经是 list[str]
+                    elif isinstance(content, str):
                         current_lines = content.split("\n")
-               elif isinstance(value, str):
+                elif isinstance(value, str):
                     current_lines = value.split("\n")
             # 内部调用，下面方法使用了self，此处也要使用self调用，不然下边方法不要写self
-           updated_content = self._merge_preferences(
-                current_lines, equipment, zones, query
-            )
+            updated_content = self._merge_preferences(current_lines, equipment, zones, query)
 
             # 8.更新记忆
-           file_value = tools._create_file_value(updated_content) # type: ignore
-           await store.aput(namespace, key, file_value)
-           logger.info(f"已更新记忆，设备：{equipment}, 区域：{zones}, 查询：{query}")
-       except Exception as e:
-           logger.warning(f"MemoryUpdateMiddleware: 更新失败，{e},跳过本次更新", exc_info=True,)
+            file_value = tools._create_file_value(updated_content)  # type: ignore
+            await store.aput(namespace, key, file_value)
+            logger.info(f"已更新记忆，设备：{equipment}, 区域：{zones}, 查询：{query}")
+        except Exception as e:
+            logger.warning(
+                f"MemoryUpdateMiddleware: 更新失败，{e},跳过本次更新",
+                exc_info=True,
+            )
 
-       return None
-   def _merge_preferences(self, current_lines: list[str], new_equipment: list[str], new_zones: list[str], new_query: str):
+        return None
+
+    def _merge_preferences(
+        self, current_lines: list[str], new_equipment: list[str], new_zones: list[str], new_query: str
+    ):
         """
         将新的用户偏好合并至其中
         策略：先移除旧 recent_equipment / recent_zones / recent_queries 区块，再在末尾追加合并后的版本。
@@ -296,16 +318,17 @@ class MemoryUpdateMiddleware(AgentMiddleware):
         existing_equipment = []
         existing_zones = []
         existing_queries = []
+
         def _parse_list_items(lines: list[str], start_idx: int):
             """
             从start_idx开始解析列表项
             """
-            items:list[str] = []
+            items: list[str] = []
             title_line = lines[start_idx].strip()
             # 检查 inline 格式: recent_equipment: [a, b]
             colon_pos = title_line.find(":")
             if colon_pos != -1:
-                inline = title_line[colon_pos + 1:].strip()
+                inline = title_line[colon_pos + 1 :].strip()
                 if inline.startswith("[") and inline.endswith("]"):
                     inner = inline[1:-1].strip()
                     if inner:
@@ -322,6 +345,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                 else:
                     count += 1  # 空行或注释，仍属于当前区块
             return items, count
+
         # 2. 找出旧区块的位置和值
         equipment_start = -1
         equipment_len = 0
@@ -355,7 +379,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
         removals.sort(key=lambda x: x[0], reverse=True)
 
         for start, length in removals:
-            del clean_lines[start:start + length]
+            del clean_lines[start : start + length]
 
         # 4. 合并新值和旧值
         merged_equipment = list(new_equipment)
@@ -405,28 +429,3 @@ class MemoryUpdateMiddleware(AgentMiddleware):
             result_lines[-1] = "recent_queries: []"
 
         return "\n".join(result_lines).strip() + "\n"
-
-
-
-
-
-  
-                
-               
-               
-
-           
-           
-
-
-
-
-
-
-
-
-
-           
-
-            
-

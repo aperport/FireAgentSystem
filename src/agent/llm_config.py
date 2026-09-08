@@ -11,6 +11,7 @@ LLM 模型实例化 — 配置 DeepSeek 模型实例。
     DEEPSEEKMODEL     — 主模型名（如 deepseek-chat）
     DEEPSEEKMODELFAST — 快速模型名
 """
+
 import os
 
 from dotenv import load_dotenv
@@ -30,7 +31,7 @@ DeepSeek_LLM = ChatOpenAI(
     api_key=DeepSeek_API,  # type: ignore
     base_url=DeepSeek_URL,
     timeout=60,
-    temperature=0.7
+    temperature=0.7,
 )
 
 DeepSeek_FAST = ChatOpenAI(

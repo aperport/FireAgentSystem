@@ -22,17 +22,18 @@ JSON 持久化工具 — 异步安全地读写 JSON 文件，主要用于保存�
 """
 
 import asyncio
-from typing import Any
-
-from util_tools.logger import get_logger
 from datetime import datetime
 import json
 import os
+from typing import Any
+
 import aiofiles
 
+from util_tools.logger import get_logger
 
 FILE_LOCK = asyncio.Lock()
 logger = get_logger(__name__)
+
 
 def get_today_date() -> str:
     """
@@ -45,9 +46,7 @@ def get_today_date() -> str:
     return date_str + ".json"
 
 
-
-
-async def save_json(data:Any, dir_name: str|None = None, file_name: str|None = None) -> None:
+async def save_json(data: Any, dir_name: str | None = None, file_name: str | None = None) -> None:
     """
     将数据保存为json,覆盖写入。
     args:
@@ -59,11 +58,11 @@ async def save_json(data:Any, dir_name: str|None = None, file_name: str|None = N
     """
     today = datetime.now()
     sep = ""
-    if file_name :
+    if file_name:
         date_str = file_name + today.strftime(f"%Y{sep}%m{sep}%d") + ".json"
     else:
         date_str = today.strftime(f"%Y{sep}%m{sep}%d") + ".json"
-    
+
     if dir_name:
         file_path = dir_name + date_str
     else:
@@ -74,8 +73,6 @@ async def save_json(data:Any, dir_name: str|None = None, file_name: str|None = N
         json_str = json.dumps(data, ensure_ascii=False, indent=4)
         async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
             await f.write(json_str)
-
-
 
 
 async def load_json(file_path: str) -> Any:
@@ -90,8 +87,6 @@ async def load_json(file_path: str) -> Any:
         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
             json_str = await f.read()
             return json.loads(json_str)
-        
-
 
 
 async def append_json_item(dir_name: str, item: Any, file_name: str) -> None:
@@ -106,11 +101,11 @@ async def append_json_item(dir_name: str, item: Any, file_name: str) -> None:
     """
     today = datetime.now()
     sep = ""
-    if file_name :
+    if file_name:
         date_str = file_name + today.strftime(f"%Y{sep}%m{sep}%d") + ".json"
     else:
         date_str = today.strftime(f"%Y{sep}%m{sep}%d") + ".json"
-    
+
     if dir_name:
         file_path = dir_name + date_str
     else:
@@ -128,13 +123,3 @@ async def append_json_item(dir_name: str, item: Any, file_name: str) -> None:
         json_str = json.dumps(data, ensure_ascii=False, indent=4)
         async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
             await f.write(json_str)
-    
-
-
-
-
-        
-
-        
-
-

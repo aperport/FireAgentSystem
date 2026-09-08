@@ -26,6 +26,7 @@ Fallback 路径：
 """
 
 from dataclasses import dataclass
+
 from graph_rag.entity_extractor import ExtractResult
 from util_tools.logger import get_logger
 
@@ -35,9 +36,10 @@ logger = get_logger(__name__)
 @dataclass
 class RetrievalCheck:
     """检索判空结果"""
-    need_fallback: bool          # 是否需要 fallback
+
+    need_fallback: bool  # 是否需要 fallback
     fallback_target: str | None  # fallback 目标工具名，无则 None
-    reason: str                  # 判断说明
+    reason: str  # 判断说明
 
 
 class RetrievalEvaluator:
@@ -49,8 +51,8 @@ class RetrievalEvaluator:
 
     # fallback 路径
     FALLBACK_MAP: dict[str, str] = {
-        "knowledge_search": "graph_rag_search",   # 向量查不到 → 补融合
-        "graph_query": "graph_rag_search",         # 图查不到 → 补融合
+        "knowledge_search": "graph_rag_search",  # 向量查不到 → 补融合
+        "graph_query": "graph_rag_search",  # 图查不到 → 补融合
     }
 
     # 向量检索最低相似度，低于此值视为无效
@@ -58,7 +60,7 @@ class RetrievalEvaluator:
 
     def check_vector(
         self,
-        results: list,         # list[Document]
+        results: list,  # list[Document]
         source_tool: str = "knowledge_search",
     ) -> RetrievalCheck:
         """判断向量检索结果是否需要 fallback
@@ -86,7 +88,9 @@ class RetrievalEvaluator:
 
         if count <= 2 and max_sim < self.MIN_SIMILARITY:
             fallback = self.FALLBACK_MAP.get(source_tool)
-            reason = f"向量检索仅 {count} 条且最高相似度={max_sim:.2f} < {self.MIN_SIMILARITY}，需 fallback 到 {fallback}"
+            reason = (
+                f"向量检索仅 {count} 条且最高相似度={max_sim:.2f} < {self.MIN_SIMILARITY}，需 fallback 到 {fallback}"
+            )
             logger.info(reason)
             return RetrievalCheck(need_fallback=True, fallback_target=fallback, reason=reason)
 
@@ -96,7 +100,7 @@ class RetrievalEvaluator:
     def check_graph(
         self,
         graph_records: list[dict],
-        extract_result: 'ExtractResult | None' = None,
+        extract_result: "ExtractResult | None" = None,
         source_tool: str = "graph_query",
     ) -> RetrievalCheck:
         """判断图遍历结果是否需要 fallback

@@ -18,14 +18,14 @@ Checkpoint配置：
 模型配置：
     SUMMARY_MODEL = DeepSeek_LLM  — 摘要/实体抽取用模型
 """
+
 from pathlib import Path
 
-from agent.llm_config import DeepSeek_LLM
 from langchain_core.language_models import BaseChatModel
-from langgraph.store.memory import InMemoryStore
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.postgres import PostgresStore
 
+from agent.llm_config import DeepSeek_LLM
 from graph_rag.config import get_settings
 
 LOCAL_SKILLS_DIR = "skills"
@@ -45,11 +45,11 @@ SUMMARY_MODEL: BaseChatModel = DeepSeek_LLM
 
 
 # ── Store Checkpoint（懒加载，避免 import 时连接数据库）──
-_STORE: PostgresStore 
+_STORE: PostgresStore
+
 
 def get_store() -> PostgresStore:
-    """获取 Store 单例（懒加载）
-    """
+    """获取 Store 单例（懒加载）"""
     global _STORE
     if _STORE is None:
         s = get_settings()
@@ -58,10 +58,14 @@ def get_store() -> PostgresStore:
         _STORE.setup()
     return _STORE
 
+
 class _StoreProxy:
     """代理对象，延迟连接数据库，行为与 PostgresSaver 一致。"""
+
     def __getattr__(self, name):
         return getattr(get_store(), name)
+
+
 STORE = _StoreProxy()
 
 
@@ -85,6 +89,7 @@ def get_checkpointer() -> PostgresSaver:
 # 懒加载代理，首次访问时才连接数据库
 class _CheckpointProxy:
     """代理对象，延迟连接数据库，行为与 PostgresSaver 一致。"""
+
     def __getattr__(self, name):
         return getattr(get_checkpointer(), name)
 

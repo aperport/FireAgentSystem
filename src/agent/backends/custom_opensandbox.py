@@ -9,14 +9,15 @@ OpenSandbox 后端封装 — 适配器模式，将 SandboxSync 封装为 BaseSan
 供 CompositeBackend 的 default 路由使用，
 管理助手可在沙箱中执行 Python 代码进行自定义分析。
 """
+
 from datetime import timedelta
-from typing import Literal
 
 from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, FileUploadResponse
 from deepagents.backends.sandbox import BaseSandbox
 from opensandbox import SandboxSync
 from opensandbox.models.execd import RunCommandOpts
 from opensandbox.models.filesystem import WriteEntry
+
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,6 +28,7 @@ class OpenSandboxBackend(BaseSandbox):
     基于OpenSandboxBackend的沙盒后端，继承了deepagents中BaseSandbox类的文件操作方法
     仅需要实现execute、download_files 和 upload_files。
     """
+
     def __init__(self, *, sandbox: SandboxSync, timeout: int = 60 * 60):
         """
         创建一个OpenSandboxBackend实例
@@ -72,7 +74,7 @@ class OpenSandboxBackend(BaseSandbox):
         :return: ExecuteResponse，包含命令输出和退出码
         """
         effective_timeout = timeout if timeout is not None else self._timeout
-        full_command = f"export PATH=\"{self.SANDBOX_PATH}:$PATH\" && \"{command}\""
+        full_command = f'export PATH="{self.SANDBOX_PATH}:$PATH" && "{command}"'
         # 一段时间后杀死对象，用来限制进程时间
         opts = RunCommandOpts(timeout=timedelta(seconds=effective_timeout))
 
@@ -84,7 +86,7 @@ class OpenSandboxBackend(BaseSandbox):
             logger.exception("命令执行异常: %s", command)
             return ExecuteResponse(output="沙箱命令执行失败", exit_code=None)
 
-        #提取标准输出与标准错误，并合并输出
+        # 提取标准输出与标准错误，并合并输出
         stdout = ""
         if execution.logs.stdout:
             stdout = "\n".join(line.text for line in execution.logs.stdout)
