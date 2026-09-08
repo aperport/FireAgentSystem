@@ -5,6 +5,7 @@ Embedding 向量化模块 — 使用 HuggingFace bge-small-zh-v1.5 本地模型�
 """
 
 import asyncio
+from functools import lru_cache
 from typing import Optional
 
 from langchain_core.embeddings import Embeddings
@@ -21,7 +22,7 @@ def create_embedder(
 ) -> Embeddings:
     """创建 HuggingFace Embedding 实例。
 
-    配置与 vector_db/collections.py 中 PGVectorManager._set_up_embeddings() 一致，
+    配置统一从 config 读取。全项目应通过 get_embedder() 单例获取实例，
     保证入库向量和检索向量在同一个向量空间中。
 
     Args:
@@ -55,13 +56,13 @@ async def aembed_documents(texts: list[str], embedder: Optional[Embeddings] = No
 
     Args:
         texts: 待向量化的文本列表
-        embedder: Embedding 实例，默认调用 create_embedder() 创建
+        embedder: Embedding 实例，默认使用 get_embedder() 全局单例
 
     Returns:
         向量列表，每个向量长度由模型决定（bge-small-zh-v1.5 为 512）
     """
     if embedder is None:
-        embedder = create_embedder()
+        embedder = get_embedder()
     return await asyncio.to_thread(embedder.embed_documents, texts)
 
 
@@ -70,12 +71,27 @@ async def aembed_query(text: str, embedder: Optional[Embeddings] = None) -> list
 
     Args:
         text: 查询文本
-        embedder: Embedding 实例
+        embedder: Embedding 实例，默认使用 get_embedder() 全局单例
 
     Returns:
         单个向量
     """
     if embedder is None:
-        embedder = create_embedder()
+        embedder = get_embedder()
     results = await asyncio.to_thread(embedder.embed_documents, [text])
     return results[0]
+
+
+# ===================== 全局单例 =====================
+
+
+@lru_cache(maxsize=1)
+def get_embedder() -> Embeddings:
+    """获取全局 Embedding 单例（懒加载）。
+
+    入库（db_operator）与检索（db_retriever）共用同一模型实例，
+    避免多处各自实例化 HuggingFaceEmbeddings 导致配置漂移、
+    入库/检索向量空间不一致。
+    测试如需重置，调用 get_embedder.cache_clear()。
+    """
+    return create_embedder()

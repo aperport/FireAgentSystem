@@ -27,6 +27,7 @@
 from langchain_core.documents import Document
 
 from graph_rag.config import get_settings
+from graph_rag.ingestion.embedding import get_embedder
 from graph_rag.vector_db.collections import PGVectorManager, get_pg_instance
 from util_tools.logger import get_logger
 
@@ -77,7 +78,8 @@ class DBOperator:
             return
         try:
             texts = [doc.page_content for doc in documents]
-            vectors = self.pg.embeddings.embed_documents(texts)  # type: ignore
+            # 全局 Embedding 单例，与检索侧同一模型、同一向量空间
+            vectors = get_embedder().embed_documents(texts)
             logger.info(f"向量表 {table_name} 写入 {len(texts)} 条数据")
 
             col_str = ", ".join(columns)

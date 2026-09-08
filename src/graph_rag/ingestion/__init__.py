@@ -45,6 +45,16 @@
 
 # [修改] 原先 __init__.py 只有文档字符串，未实际导出函数。
 # 现在从 save_data 导出顶层编排函数，使 from graph_rag.ingestion import ingest_markdown 可用。
-from graph_rag.ingestion.save_data import IngestResult, ingest_directory, ingest_markdown
+# 采用 PEP 562 懒加载：db_operator 会导入 ingestion.embedding，
+# 若此处急切导入 save_data → db_operator 会形成循环导入，懒加载可断开该环。
+
+
+def __getattr__(name: str):
+    if name in ("ingest_markdown", "ingest_directory", "IngestResult"):
+        from graph_rag.ingestion.save_data import IngestResult, ingest_directory, ingest_markdown
+
+        return {"ingest_markdown": ingest_markdown, "ingest_directory": ingest_directory, "IngestResult": IngestResult}[name]
+    raise AttributeError(f"module 'graph_rag.ingestion' has no attribute '{name}'")
+
 
 __all__ = ["ingest_markdown", "ingest_directory", "IngestResult"]

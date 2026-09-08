@@ -77,8 +77,7 @@ class _BM25Index:
                     port=s.pg_port,
                 )
                 cls._instance = HybridRetrievalModule(
-                    PGV_module=pg,
-                    llm_client=_get_llm(),
+                    pg=pg,
                 )
                 cls._instance.rebuild_bm25_index()
                 logger.info("BM25 索引全局单例构建完成")
