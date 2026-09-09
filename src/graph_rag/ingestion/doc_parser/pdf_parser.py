@@ -29,7 +29,8 @@ class ScanPdfTransformer:
         read_result = pdf_inspector.process_pdf(self.pdf_path)
         if not read_result:
             logger.error("提取 PDF 内容失败。")
-        self.md = read_result.markdown
+        self.md = read_result.markdown if read_result else None
+        return self.md
 
     def pdf_write_md(self) -> Path:
         """

@@ -52,7 +52,7 @@ class VectorRetriever:
 
     def __init__(self, retrieval_module: HybridRetrievalModule):
         self.retrieval_module = retrieval_module
-        self.fusion_module = ContextFusionModule(parent_map=retrieval_module.parent_map)
+        self.fusion_module = ContextFusionModule(loader=retrieval_module.load_source_chunks)
 
     async def search(
         self,
@@ -72,7 +72,7 @@ class VectorRetriever:
             query: 查询文本
             search_type: 检索策略，可选：
                 - dense：稠密向量检索（语义模糊查询）
-                - sparse：BM25 关键词检索（精确关键词查询）
+                - sparse：稀疏向量检索（PG sparsevec 余弦，精确关键词查询）
                 - hybrid：混合检索（推荐默认使用）
             top_k: 返回前 k 个结果
             category: 按分类过滤（regulation / standard / manual / faq）

@@ -35,7 +35,7 @@ from graph_rag.entity_extractor import (
     NerEntityExtractor,
 )
 from graph_rag.graph_traverser import GraphTraverser
-from graph_rag.orchestrator import GraphRAGOrchestrator, _BM25Index, set_llm
+from graph_rag.orchestrator import GraphRAGOrchestrator, get_retrieval_module, set_llm
 from graph_rag.vector_retriever import VectorRetriever
 from agent.llm_config import DeepSeek_LLM
 from util_tools.logger import get_logger
@@ -61,11 +61,11 @@ def _get_extraction_pipeline() -> DocumentGraphExtractionPipeline:
 
 def _build_orchestrator() -> GraphRAGOrchestrator:
     """组装 GraphRAG 编排器：各组件在此统一注入。"""
-    retrieval_module = _BM25Index.get()
+    retrieval_module = get_retrieval_module()
     return GraphRAGOrchestrator(
         graph_traverser=GraphTraverser(llm=DeepSeek_LLM),
         doc_extraction=_get_extraction_pipeline(),
-        context_fusion=ContextFusionModule(parent_map=retrieval_module.parent_map),
+        context_fusion=ContextFusionModule(loader=retrieval_module.load_source_chunks),
         vector_retriever=VectorRetriever(retrieval_module=retrieval_module),
     )
 
@@ -135,7 +135,7 @@ def register_knowledge_tools(mcp: FastMCP):
         logger.info("knowledge_search 调用: query=%s", query)
         try:
             # [修改] 原先使用 VectorQuery 类（已删除），现直接调用底层 VectorRetriever
-            retrieval_module = _BM25Index.get()
+            retrieval_module = get_retrieval_module()
             vector_retriever = VectorRetriever(retrieval_module=retrieval_module)
             result = await vector_retriever.search(query=query)
             logger.info("knowledge_search 完成: %d 条结果", len(result))

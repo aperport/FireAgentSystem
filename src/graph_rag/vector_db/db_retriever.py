@@ -17,14 +17,13 @@
 
 import hashlib
 
-import jieba
 from langchain_core.documents import Document
-from pgvector.psycopg2 import SparseVector
-from rank_bm25 import BM25Okapi
+from pgvector.psycopg2.sparsevec import SparseVector
 
 from graph_rag.ingestion.embedding import encode_query_dense, encode_query_sparse
 from graph_rag.vector_db.collections import (
     DENSE_SEARCH_SQL,
+    LOAD_SOURCE_CHUNKS_SQL,
     SPARSE_SEARCH_SQL,
     SPARSE_VECTOR_PLACEHOLDER,
     PGVectorManager,
@@ -32,24 +31,6 @@ from graph_rag.vector_db.collections import (
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-# 中文停用词表：助词 / 连词 / 疑问词 / 人称 / 语气词 / 动词修饰（网上有类似的包，但需要考虑实际项目）
-_CHINESE_STOPWORDS = set(
-    """
-的 了 和 是 在 我 有 就 不 也 都 还 这 那 一 个 与 及 等 上 下 中 为 以 于 从 把 被 让 使 又 而 但 或
-什么 怎么 如何 哪些 哪个 哪里 谁 多少 几 你 他 她 它 我们 他们 她们 它们
-请问 请 想 要 需要 能 可以 应该 会 啊 呢 吧 嘛 吗 哦 呀 哈
-之 其 此 该 即 各 每 些 种 类 时 后 前 里 外 内 间 已经 正在 一些 一下
-""".split()
-)
-
-
-def _tokenize_chinese(text: str) -> list[str]:
-    """中文分词（过滤停用词）"""
-    if not text:
-        return []
-    return [token for token in jieba.lcut(text) if token not in _CHINESE_STOPWORDS and token.strip()]
 
 
 def rrf_merge(ranked_list: list[tuple[str, list[Document]]], top_k: int, k: int = 60) -> list[Document]:
@@ -61,7 +42,7 @@ def rrf_merge(ranked_list: list[tuple[str, list[Document]]], top_k: int, k: int 
     同一 id 在同一 source 内多次命中只取最佳 rank 算分一次。
 
     Args:
-        ranked_list: [(来源名, 该来源的排序结果), ...]，如 [("dense", docs), ("bm25", docs)]
+        ranked_list: [(来源名, 该来源的排序结果), ...]，如 [("dense", docs), ("sparse", docs)]
         top_k: 返回前 k 个
         k: 平滑常数，默认取 60
     """
@@ -126,8 +107,8 @@ def rrf_merge(ranked_list: list[tuple[str, list[Document]]], top_k: int, k: int 
 class HybridRetrievalModule:
     """混合检索模块 — 只负责三路检索与融合，不管模型、不管上下文组装。
 
-    1. BM25 关键词检索（jieba 分词 + 停用词过滤）
-    2. 稠密检索（pgvector 余弦相似度）
+    1. 稠密检索（pgvector 余弦相似度，BGE-M3 dense）
+    2. 稀疏检索（pgvector sparsevec 余弦，BGE-M3 sparse）
     3. RRF 融合多路检索结果（模块级 rrf_merge 纯函数）
     """
 
@@ -140,23 +121,43 @@ class HybridRetrievalModule:
                 与入库向量化同一模型、同一向量空间。
         """
         self.pg = pg
-        self.parent_map: dict[str, list[Document]] = {}
 
-    def initialize(self, chunks: list[Document]):
-        """初始化检索系统（BM25 索引 + 父文档映射）"""
+    def load_source_chunks(self, source_file: str) -> list[Document]:
+        """按需加载某 source_file 的全部 chunk（按入库顺序，即 id 升序）。
 
-        # 初始化 BM25（jieba 分词 + 中文停用词过滤）
-        if chunks:
-            self.bm25_corpus_docs = list(chunks)
-            # 将文档通过分词分成单词，然后过滤掉中文停用词，再构建 BM25 索引
-            tokenized_corpus = [_tokenize_chinese(doc.page_content) for doc in chunks]
-            self.bm25 = BM25Okapi(tokenized_corpus)
-            avg_token = sum(len(t) for t in tokenized_corpus) / max(len(tokenized_corpus), 1)
-            logger.info(f"BM25 索引构建完成，平均单词数：{avg_token},文档数量：{len(chunks)}")
+        父文档回填使用：命中 chunk 后现场从 PG 拉同源邻居，避免全表加载。
+        source_file 列存的是来源文件 hash（collections.FIRE_DOC_DDL），
+        同一文件的所有 chunk 共享同一 hash，故可按此分组。
 
-        # 初始化 父文档映射表
-        self.parent_map = self._build_parent_map()
-        logger.info("父文档映射表构建完成，文档数量：{}".format(len(self.parent_map)))
+        Args:
+            source_file: 来源文件 hash
+
+        Returns:
+            list[Document]: 同源全部 chunk，metadata 含 id/category/source_file/source_name/title
+        """
+        try:
+            cur = self.pg.get_cursor()
+            cur.execute(LOAD_SOURCE_CHUNKS_SQL, (source_file,))
+            rows = cur.fetchall()
+            docs = [
+                Document(
+                    page_content=row["text"],
+                    metadata={
+                        "id": row["id"],
+                        "category": row["category"],
+                        "source_file": row["source_file"],
+                        "source_name": row.get("source_name", ""),
+                        "title": row["title"],
+                        "search_type": "parent_fill",
+                    },
+                )
+                for row in rows
+            ]
+            logger.info(f"按需加载同源 chunk：source_file={source_file}，共 {len(docs)} 条")
+            return docs
+        except Exception as e:
+            logger.error(f"按需加载同源 chunk 失败：source_file={source_file}，错误={e}")
+            return []
 
     def _query_sparse_vector(self, query: str, max_sparse_tokens: int = 128) -> SparseVector:
         """查询文本 → pgvector SparseVector。
@@ -302,27 +303,6 @@ class HybridRetrievalModule:
         except Exception as e:
             logger.error(f"稠密向量检索失败：{e}")
             return []
-
-    def _build_parent_map(self) -> dict[str, list[Document]]:
-        """构建父文档映射表
-
-        将 bm25_corpus_docs 中的子文档按 source_file 分组，
-        形成 source_file -> [Document, ...] 的映射关系。
-        用于检索命中子文档后，回填同一 source_file 下的完整父文档内容，
-        提供更丰富的上下文信息。
-
-        Returns:
-            dict[str, list[Document]]: source_file -> 同源子文档列表
-        """
-        parent_map: dict[str, list[Document]] = {}
-        for doc in self.bm25_corpus_docs:
-            source_file = doc.metadata.get("source_file", "")
-            if not source_file:
-                continue
-            if source_file not in parent_map:
-                parent_map[source_file] = []
-            parent_map[source_file].append(doc)
-        return parent_map
 
     def hybrid_search(
         self,

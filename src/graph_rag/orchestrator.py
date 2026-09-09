@@ -35,9 +35,12 @@ from util_tools.logger import get_logger
 logger = get_logger(__name__)
 
 
-# ===================== 全局单例：BM25 索引 =====================
+# ===================== 全局单例：检索模块 =====================
 
 _LLM: BaseChatModel | None = None
+
+_retrieval_module: HybridRetrievalModule | None = None
+_retrieval_lock = threading.Lock()
 
 
 def _get_llm() -> BaseChatModel:
@@ -53,39 +56,18 @@ def set_llm(llm: BaseChatModel) -> None:
     _LLM = llm
 
 
-class _BM25Index:
-    """BM25 索引全局单例（进程级缓存）。
+def get_retrieval_module() -> HybridRetrievalModule:
+    """获取检索模块全局单例（懒加载 + 线程安全）。
 
-    首次访问时从 PG 加载全表文本构建 BM25Okapi 索引，后续直接复用。
-    数据入库后调用 rebuild() 重建。
+    sparsevec 检索走 PG SQL（sparse_vector 列由入库侧写入），
+    无需任何内存索引，BM25 已随 sparsevec 路线一并下线。
     """
-
-    _instance: HybridRetrievalModule | None = None
-    _lock = threading.Lock()
-
-    @classmethod
-    def get(cls) -> HybridRetrievalModule:
-        """获取 BM25 索引实例（懒加载）。"""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is not None:
-                    return cls._instance
-
-                pg = get_pg_instance()
-                cls._instance = HybridRetrievalModule(
-                    pg=pg,
-                )
-                cls._instance.rebuild_bm25_index()
-                logger.info("BM25 索引全局单例构建完成")
-        return cls._instance
-
-    @classmethod
-    def rebuild(cls) -> HybridRetrievalModule:
-        """数据入库后调用，重建 BM25 索引。"""
-        logger.info("BM25 索引重建触发")
-        with cls._lock:
-            cls._instance = None
-        return cls.get()
+    global _retrieval_module
+    if _retrieval_module is None:
+        with _retrieval_lock:
+            if _retrieval_module is None:
+                _retrieval_module = HybridRetrievalModule(pg=get_pg_instance())
+    return _retrieval_module
 
 
 class GraphRAGOrchestrator:
@@ -96,7 +78,7 @@ class GraphRAGOrchestrator:
         context_fusion: ContextFusionModule,
         vector_retriever: VectorRetriever,
     ):
-        self.retrieval_module = _BM25Index.get()
+        self.retrieval_module = get_retrieval_module()
         self.graph_traverser = graph_traverser
         self.doc_extraction = doc_extraction
         self.context_fusion = context_fusion

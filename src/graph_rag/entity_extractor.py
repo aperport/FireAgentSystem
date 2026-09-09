@@ -108,14 +108,16 @@ class LlmEntityExtractor:
         return node_desc, rel_desc
 
     def _build_extract_prompt(self, query: str, context: str | None = None) -> str:
-        """构建实体抽取 prompt，将图 Schema 约束嵌入其中。"""
+        """构建实体抽取 prompt，将图 Schema 约束与对话上下文嵌入其中。"""
         node_desc, rel_desc = self._format_schema()
+
+        context_section = f"\n## 对话上下文\n{context}\n" if context else ""
 
         return f"""你是一个消防后勤领域的实体抽取专家。请从用户问题中提取与图数据库查询相关的关键实体和关系。
 
     ## 用户问题
     {query}
-
+{context_section}
     ## 图数据库节点类型（仅限以下类型，不得自行编造）
     {node_desc}
 

@@ -123,15 +123,11 @@ CREATE INDEX IF NOT EXISTS idx_image_dense ON fire_image_collection
 
 
 # ──────────────── 稀疏向量（sparsevec）路线 ────────────────
-# 进度：写入已实装（db_operator 直接绑定 pgvector SparseVector）；
-#       检索未启用（sparse 仍走内存 BM25，db_retriever.sparse_search 为桩）。
+# 已实装：写入（db_operator 绑定 pgvector SparseVector）与检索
+# （db_retriever.sparse_search 走 SPARSE_SEARCH_SQL 余弦查询）均完成。
+# 内存 BM25 整套机器（分词 / 停用词 / rebuild_bm25_index / bm25_search /
+# LOAD_ALL_TEXT_SQL）已随 sparsevec 路线一并删除。
 # 新建表 DDL 已含 sparse_vector 列；存量表用下面的 SPARSE_VECTOR_DDL 补列。
-# 剩余启用步骤：
-#   1. 实现 db_retriever.sparse_search：按 SPARSE_SEARCH_SQL 查询，
-#      查询向量转字面量 '{i:v}/dim'（索引从 1 起）
-#   2. 入库后调用 build_sparse_vector_indexes() 建 HNSW 索引
-#   3. 删除内存 BM25 整套机器（分词 / 停用词 / rebuild_bm25_index /
-#      bm25_search / LOAD_ALL_TEXT_SQL）
 
 # 为两张表添加 sparse_vector 字段（幂等，可反复执行）
 SPARSE_VECTOR_DDL = """
@@ -179,10 +175,11 @@ ORDER BY sparse_vector <=> {sparse_vector_placeholder}
 LIMIT %s
 """
 
-# 加载全部文本（BM25 索引重建用；切换 sparsevec 路线后此查询随之删除）
-LOAD_ALL_TEXT_SQL = """
-SELECT id, text, category, source_file, title
+# 按需加载同源 chunk（父文档回填用；走 idx_doc_source_file 索引，只拉命中文件）
+LOAD_SOURCE_CHUNKS_SQL = """
+SELECT id, text, category, source_file, source_name, title
 FROM fire_doc_collection
+WHERE source_file = %s
 ORDER BY id
 """
 

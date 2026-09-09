@@ -22,6 +22,9 @@
 
 import asyncio
 import hashlib
+import threading
+from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.documents import Document
@@ -41,31 +44,36 @@ class ContextFusionModule:
         - Token 预算截断：确保送入 LLM 的上下文不超出窗口
     """
 
-    def __init__(self, parent_map: dict[str, list[Document]] | None = None):
+    def __init__(
+        self,
+        loader: Callable[[str], list[Document]] | None = None,
+        parent_map: dict[str, list[Document]] | None = None,
+        max_cached_sources: int = 16,
+    ):
         """初始化上下文融合模块
 
         Args:
-            parent_map: source_file -> 同源子文档列表，
-                由 HybridRetrievalModule._build_parent_map() 构建，
-                可后续通过 set_parent_map() 更新。
+            loader: 按 source_file 懒加载同源 chunk 的回调（按需加载），
+                缓存未命中时调用，返回该 source_file 下按入库顺序排列的
+                Document 列表。典型实现：HybridRetrievalModule.load_source_chunks()。
+            parent_map: 兼容参数，预置的完整映射表，作为初始缓存。
+            max_cached_sources: 缓存的最大 source_file 数，超出后淘汰最久未用的（LRU）。
         """
-        self._parent_map: dict[str, list[Document]] = parent_map or {}
+        self._loader = loader
+        self._max_cached_sources = max_cached_sources
+        self._parent_map: OrderedDict[str, list[Document]] = OrderedDict(parent_map or {})
+        self._lock = threading.Lock()
 
     def set_parent_map(self, parent_map: dict[str, list[Document]]) -> None:
-        """更新父文档映射表
-
-        在检索模块重新加载/重建索引后调用，同步最新的 parent_map。
-
-        Args:
-            parent_map: source_file -> 同源子文档列表
-        """
-        self._parent_map = parent_map
-        logger.info(f"父文档映射表已更新，条目数={len(parent_map)}")
+        """整体替换父文档映射缓存（加锁保证并发安全）"""
+        with self._lock:
+            self._parent_map = OrderedDict(parent_map)
+            logger.info(f"父文档映射表已更新，条目数={len(parent_map)}")
 
     @property
     def parent_map(self) -> dict[str, list[Document]]:
-        """当前父文档映射表"""
-        return self._parent_map
+        """当前已缓存的父文档映射表（仅含被懒加载过的 source_file）"""
+        return dict(self._parent_map)
 
     # ────────────────────── 0. 图记录转 Document ──────────────────────
 
@@ -303,29 +311,48 @@ class ContextFusionModule:
 
     # ────────────────────── 3. 父文档回填 ──────────────────────
 
-    @staticmethod
+    def _ensure_loaded(self, source_file: str) -> list[Document]:
+        """确保某 source_file 的同源 chunk 已入缓存；未命中则通过 loader 懒加载。
+
+        双检锁：并发 fuse 时避免重复加载同一文件。
+        缓存超过 max_cached_sources 时按 LRU 淘汰最久未用的项。
+        """
+        with self._lock:
+            cached = self._parent_map.get(source_file)
+            if cached is not None:
+                # 命中缓存，刷新为最近使用（LRU）
+                self._parent_map.move_to_end(source_file)
+                return cached
+
+            if self._loader is None:
+                return []
+
+            docs = self._loader(source_file) or []
+            self._parent_map[source_file] = docs
+            while len(self._parent_map) > self._max_cached_sources:
+                self._parent_map.popitem(last=False)
+            return docs
+
     def attach_parent_documents(
+        self,
         chunks: list[Document],
-        parent_map: dict[str, list[Document]],
         top_n: int = 3,
         context_window: int = 1,
     ) -> list[Document]:
         """附加相邻上下文文档
 
         对命中的子文档，回填同一 source_file 下前后相邻的 chunk，
-        提供连贯上下文，而非整篇文档。
+        提供连贯上下文，而非整篇文档。同源 chunk 按需懒加载并缓存。
 
         Args:
             chunks: 检索命中的子文档
-            parent_map: source_file -> 同源子文档列表（按入库顺序排列）
             top_n: 只回填排名前 N 的文档
             context_window: 前后各取几个相邻 chunk，默认1（即前1+自身+后1）
 
         Returns:
             list[Document]: 回填后的文档列表
         """
-        if not parent_map:
-            logger.warning("父文档映射表为空，无法回填父文档")
+        if not chunks:
             return chunks
 
         top_chunks = chunks[:top_n]
@@ -334,10 +361,12 @@ class ContextFusionModule:
 
         for chunk in top_chunks:
             source_file = chunk.metadata.get("source_file", "")
-            if not source_file or source_file not in parent_map:
+            if not source_file:
                 continue
 
-            sibling_docs = parent_map[source_file]
+            sibling_docs = self._ensure_loaded(source_file)
+            if not sibling_docs:
+                continue
             # 找到命中 chunk 在同源列表中的位置
             hit_id = chunk.metadata.get("id")
             hit_index = -1
@@ -459,8 +488,8 @@ class ContextFusionModule:
         将向量检索和图遍历的多路结果融合为统一的上下文，
         按转换、去重、排序、回填、截断的顺序依次处理，全程异步执行。
 
-        parent_map 通过构造函数注入或 set_parent_map() 更新，
-        调用方无需手动传入。
+        同源 chunk 按需懒加载：父文档回填只拉取被命中 source_file 的分组，
+        无需全表加载。
 
         Args:
             vector_docs: 向量检索结果（dense / sparse / hybrid）
@@ -490,8 +519,8 @@ class ContextFusionModule:
         # Step 2: 相关性排序（CPU 密集，放入线程池）
         docs = await asyncio.to_thread(self.sort_by_relevance, docs)
 
-        # Step 3: 父文档回填（CPU 密集，放入线程池，使用注入的 parent_map）
-        docs = await asyncio.to_thread(self.attach_parent_documents, docs, self._parent_map, parent_top_n)
+        # Step 3: 父文档回填（CPU 密集，放入线程池；同源 chunk 按需懒加载）
+        docs = await asyncio.to_thread(self.attach_parent_documents, docs, parent_top_n)
 
         # Step 4: Token 预算截断（CPU 密集，放入线程池）
         if token_budget > 0:

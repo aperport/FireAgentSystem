@@ -31,7 +31,8 @@
 """
 
 from langchain_core.documents import Document
-from pgvector.psycopg2 import SparseVector, Vector
+from pgvector.psycopg2.sparsevec import SparseVector
+from pgvector.psycopg2.vector import Vector
 
 from graph_rag.ingestion.embedding import encode_hybrid
 from graph_rag.vector_db.collections import PGVectorManager, get_pg_instance
