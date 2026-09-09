@@ -3,7 +3,7 @@
 
 ✅ 已实现。支持三种检索策略：
     1. 稠密检索（dense）：Embedding 向量余弦相似度，适合语义模糊查询
-    2. 稀疏检索（sparse）：BM25 关键词匹配，适合条款号/设备型号等精确查询
+    2. 稀疏检索（sparse）：PG sparsevec 余弦检索，适合条款号/设备型号等精确查询
     3. 混合检索（hybrid）：稠密+稀疏 RRF 融合，兼顾语义和关键词，推荐默认使用
 
 检索流程（search 统一入口）：
@@ -11,7 +11,7 @@
       │
       ├── 1. 按策略分发检索（委托 db_retriever）
       │   ├── "dense"  → dense_search()
-      │   ├── "sparse" → bm25_search()
+      │   ├── "sparse" → sparse_search()
       │   └── "hybrid" → hybrid_search()
       │
       ├── 2. 父文档回填（委托 context_fusion.attach_parent_documents）
@@ -26,11 +26,9 @@
 
 ⚠️ 已知问题：
     1. ~~search() 是 async 方法，但内部调用的检索方法均为同步~~ → 已用 asyncio.to_thread 包装
-    2. HybridRetrievalModule 初始化时未调用 initialize()，bm25 索引为空
 
 待优化：
     - 将 db_retriever 的检索方法改为异步，或使用 asyncio.to_thread 包装
-    - VectorRetriever 初始化时应触发 BM25 索引构建
     - 增加 retrieval_evaluator 集成：检索结果为空时自动 fallback
 """
 
@@ -94,7 +92,13 @@ class VectorRetriever:
                 score_threshold=score_threshold,
             )
         elif search_type == "sparse":
-            docs = await asyncio.to_thread(self.retrieval_module.bm25_search, query, top_K=top_k)
+            docs = await asyncio.to_thread(
+                self.retrieval_module.sparse_search,
+                query,
+                top_k=top_k,
+                category=category,
+                score_threshold=score_threshold,
+            )
         elif search_type == "hybrid":
             docs = await asyncio.to_thread(
                 self.retrieval_module.hybrid_search,

@@ -22,8 +22,7 @@
 
 写入格式遵循 collections.py 中定义的表 Schema。
 ⚠️ columns 顺序与 values 拼装顺序强绑定，调整列顺序需同步修改本文件。
-数据入库后需调用 PGVectorManager.build_vector_indexes() 构建向量索引，
-以及 db_retriever.rebuild_bm25_index() 重建 BM25 索引。
+数据入库后需调用 PGVectorManager.build_vector_indexes() 构建向量索引。
 
 
 待优化：

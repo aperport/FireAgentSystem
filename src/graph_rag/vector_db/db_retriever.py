@@ -3,32 +3,15 @@
 
 检索策略：
     - dense：PG pgvector 余弦相似度（语义模糊查询）
-    - sparse：jieba + rank_bm25 内存索引（条款号 / 设备型号等精确关键词）
+    - sparse：PG sparsevec SQL 余弦检索（BGE-M3 稀疏向量，
+      条款号 / 设备型号等精确关键词）
     - hybrid：dense + sparse 经 rrf_merge() 做 RRF 融合（默认推荐）
-
-BM25 索引生命周期：
-    - rebuild_bm25_index()：全表加载 text → 分词 → 建 BM25Okapi 索引
-    - 索引未构建时 bm25_search() 直接返回空
-
-═══════════════════════════════════════════════
-稀疏向量（sparsevec）路线：写入已实装，检索未启用
-═══════════════════════════════════════════════
-写入已实装：db_operator 已将 BGE-M3 lexical weights 写入 sparse_vector
-sparsevec(250002)（Top-128 截断）；检索未启用，sparse_search() 仍是桩，
-当前生效路径为 bm25_search()，切换后删除 BM25 整套机器（分词 / 停用词 /
-rebuild_bm25_index / bm25_search）。
-
-启用 sparse_search() 所需（勿删）：collections.SPARSE_SEARCH_SQL、
-SPARSE_VECTOR_PLACEHOLDER、PGVectorManager.build_sparse_vector_indexes()、
-encode_query_sparse()。
 
 ⚠️ 已知问题：
     1. 方法均为同步，靠 vector_retriever.search() 用 asyncio.to_thread 包装，
        新增直接调用方需自行包装
-    2. BM25 依赖全量内存语料，数据量增长后内存占用与重建耗时线性上升
 
 待优化：
-    - 停用词表可替换为专业停用词包
     - hybrid_search 两路检索可并行（当前串行）
 """
 
@@ -36,22 +19,19 @@ import hashlib
 
 import jieba
 from langchain_core.documents import Document
+from pgvector.psycopg2 import SparseVector
 from rank_bm25 import BM25Okapi
 
-from graph_rag.ingestion.embedding import get_embedder, encode_query_dense, encode_query_sparse
+from graph_rag.ingestion.embedding import encode_query_dense, encode_query_sparse
 from graph_rag.vector_db.collections import (
     DENSE_SEARCH_SQL,
-    LOAD_ALL_TEXT_SQL,
-    SPARSE_SEARCH_SQL,  # sparsevec 路线预留
-    SPARSE_VECTOR_PLACEHOLDER,  # sparsevec 路线预留
+    SPARSE_SEARCH_SQL,
+    SPARSE_VECTOR_PLACEHOLDER,
     PGVectorManager,
 )
 from util_tools.logger import get_logger
 
 logger = get_logger(__name__)
-
-# 供 sparse_search 预留实现与后续启用参考（避免 F401 unused import）
-_ASSERT_UNUSED = (SPARSE_SEARCH_SQL, SPARSE_VECTOR_PLACEHOLDER)
 
 
 # 中文停用词表：助词 / 连词 / 疑问词 / 人称 / 语气词 / 动词修饰（网上有类似的包，但需要考虑实际项目）
@@ -162,7 +142,6 @@ class HybridRetrievalModule:
         self.pg = pg
         self.parent_map: dict[str, list[Document]] = {}
 
-
     def initialize(self, chunks: list[Document]):
         """初始化检索系统（BM25 索引 + 父文档映射）"""
 
@@ -179,6 +158,17 @@ class HybridRetrievalModule:
         self.parent_map = self._build_parent_map()
         logger.info("父文档映射表构建完成，文档数量：{}".format(len(self.parent_map)))
 
+    def _query_sparse_vector(self, query: str, max_sparse_tokens: int = 128) -> SparseVector:
+        """查询文本 → pgvector SparseVector。
+
+        与入库侧 db_operator 同规则：BGE-M3 lexical_weights 按权重
+        Top-128 截断（sparsevec HNSW 索引非零元素上限 1000），
+        token id +1（sparsevec 索引从 1 起），总维度 250002。
+        """
+        sparse = encode_query_sparse(query)
+        top_items = sorted(sparse.items(), key=lambda x: x[1], reverse=True)[:max_sparse_tokens]
+        return SparseVector({k + 1: v for k, v in top_items}, 250002)
+
     def sparse_search(
         self,
         query: str,
@@ -187,35 +177,57 @@ class HybridRetrievalModule:
         score_threshold: float = 0.1,
         table_name: str = "fire_doc_collection",
     ) -> list[Document]:
-        """【预留】pgvector sparsevec 原生稀疏向量检索 — 当前未启用。
+        """稀疏向量检索（PG pgvector sparsevec 余弦相似度）。
 
-        稀疏向量后续将存入 PGV sparse_vector 字段（sparsevec 类型），
-        届时本方法替代内存 BM25 的 bm25_search()，步骤：
-            1. 将查询文本转为稀疏向量字面量 '{1:0.5,3:1.2}/维度'（索引从 1 起）
-            2. 按 SPARSE_SEARCH_SQL 做 sparsevec <=> 余弦距离检索
-            3. 入库侧由 db_operator 写入 sparse_vector 列
-        启用前提：collections.SPARSE_VECTOR_DDL 已执行、
-        PGVectorManager.build_sparse_vector_indexes() 已建 HNSW 索引。
+        查询文本经 BGE-M3 稀疏向量化后，与库内 sparse_vector 做
+        余弦距离检索。
 
         Args:
-            query: 查询文本（启用时需先做稀疏向量化）
+            query: 查询文本
             top_k: 返回前 k 个结果
-            category: 按分类过滤
-            score_threshold: 最低相似度阈值
+            category: 按分类过滤，None 表示不过滤
+            score_threshold: 最低相似度阈值，低于此值的结果将被过滤
             table_name: 查询的表名，默认 fire_doc_collection
 
         Returns:
-            list[Document]: 检索结果列表
+            list[Document]: 检索结果列表，metadata 中包含 score 和 search_type
         """
-        # TODO(启用 sparsevec 路线): 实现 SQL 查询，模板已备好：
-        #   sql = SPARSE_SEARCH_SQL.format(
-        #       table_name=table_name,
-        #       sparse_vector_placeholder=SPARSE_VECTOR_PLACEHOLDER,
-        #       category_filter="AND category = %s" if category else "",
-        #   )
-        #   查询向量需先转稀疏字面量 '{i:v}/dim'，cursor 参数顺序：
-        #   (sparse_literal, [category,] sparse_literal, top_k)
-        raise NotImplementedError("sparsevec 检索尚未启用：待稀疏向量入库后实现（接口已预留）")
+        query_sparse_vec = self._query_sparse_vector(query)
+
+        category_filter = "AND category = %s" if category else ""
+        sql = SPARSE_SEARCH_SQL.format(
+            table_name=table_name,
+            sparse_vector_placeholder=SPARSE_VECTOR_PLACEHOLDER,
+            category_filter=category_filter,
+        )
+
+        cur = self.pg.get_cursor()
+        if category:
+            cur.execute(sql, (query_sparse_vec, category, query_sparse_vec, top_k))
+        else:
+            cur.execute(sql, (query_sparse_vec, query_sparse_vec, top_k))
+
+        docs: list[Document] = []
+        for row in cur.fetchall():
+            score = float(row["score"])
+            if score < score_threshold:
+                continue
+            docs.append(
+                Document(
+                    page_content=row["text"],
+                    metadata={
+                        "id": row["id"],
+                        "category": row["category"],
+                        "source_file": row["source_file"],
+                        "title": row["title"],
+                        "source_name": row.get("source_name", ""),
+                        "score": score,
+                        "search_type": "sparse",
+                    },
+                )
+            )
+            logger.info(f"Sparse 检索结果：{row['text'][:80]}...，分数：{score:.4f}")
+        return docs
 
     def dense_search(
         self,
@@ -322,7 +334,7 @@ class HybridRetrievalModule:
     ) -> list[Document]:
         """混合检索（dense + sparse RRF 融合）
 
-        同时执行稠密向量检索和 BM25 关键词检索，然后使用
+        同时执行稠密向量检索和稀疏向量检索，然后使用
         Reciprocal Rank Fusion (RRF) 融合两路结果，兼顾语义和关键词匹配。
 
         Args:
@@ -335,15 +347,15 @@ class HybridRetrievalModule:
         Returns:
             list[Document]: RRF 融合后的检索结果
         """
-        # 1. 执行两路检索（各取 top_k * 2 扩大候选集）
+        # 1. 执行两路检索（各取 top_k * 2 扩大候选集，两路统一分类过滤）
         expand_k = top_k * 2
         dense_docs = self.dense_search(query, top_k=expand_k, category=category, score_threshold=score_threshold)
-        sparse_docs = self.bm25_search(query, top_K=expand_k)
+        sparse_docs = self.sparse_search(query, top_k=expand_k, category=category, score_threshold=score_threshold)
 
         # 2. RRF 融合（模块级纯函数）
         ranked_list: list[tuple[str, list[Document]]] = [
             ("dense", dense_docs),
-            ("bm25", sparse_docs),
+            ("sparse", sparse_docs),
         ]
         merged = rrf_merge(ranked_list, top_k=top_k, k=rrf_k)
 
@@ -351,5 +363,5 @@ class HybridRetrievalModule:
         for doc in merged:
             doc.metadata["search_type"] = "hybrid"
 
-        logger.info(f"Hybrid 检索完成：dense={len(dense_docs)}, bm25={len(sparse_docs)}, 融合后={len(merged)}")
+        logger.info(f"Hybrid 检索完成：dense={len(dense_docs)}, sparse={len(sparse_docs)}, 融合后={len(merged)}")
         return merged

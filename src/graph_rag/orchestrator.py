@@ -88,9 +88,6 @@ class _BM25Index:
         return cls.get()
 
 
-# ===================== 全局单例：Neo4j 驱动 =====================
-
-
 class GraphRAGOrchestrator:
     def __init__(
         self,
