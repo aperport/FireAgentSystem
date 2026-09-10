@@ -42,20 +42,13 @@ class ContextInjectionMiddleware(AgentMiddleware):
         """
         # 从runtime.context中获取Id，usename等信息，没有返回空字典
         ctx = getattr(runtime, "context", {})
-        """
-        与上文等价
-        try:
-            ctx = runtime.context
-        except AttributeError:
-            ctx = {}
-        """
         if not ctx:
-            logger.warning("context is empty, skip context injection")
+            logger.warning("上下文为空，跳过上下文注入")
             return None
 
         user_id = getattr(ctx, "user_id", None)
         if not user_id:
-            logger.warning("user_id is empty, skip context injection")
+            logger.warning("user_id为空，跳过上下文注入")
             return None
         # 获取username，如果没有就使用userid作为name
         username = getattr(ctx, "username", None) or user_id
