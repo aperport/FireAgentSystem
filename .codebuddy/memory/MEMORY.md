@@ -27,3 +27,16 @@
 - `db_retriever.py` 的自定义中文停用词表可用 jieba 自带的
 - 评估模块（evaluator.py, retrieval_evaluator.py）未接入 orchestrator，建议移至 test/
 - requirements.txt 中 fastapi/uvicorn 对应的 api_view/ 目录为空
+
+## 记忆系统架构要点（2026-09-11 走读，详见当日日志）
+
+- 记忆读写模式：**写**靠 `MemoryUpdateMiddleware`（`aafter_agent`）自动提取实体写 StoreBackend；**读**靠 `ContextInjectionMiddleware` 注入提示、Agent 自己 `read_file`。无显式加载函数。
+- `/memories/` 由 `main_agent.py` 的 CompositeBackend 路由到 StoreBackend（namespace=user_id），底层 PostgresStore。
+- `_merge_preferences` 滚动窗口：equipment 10 / zones 5 / queries 5，不会无限叠加。
+
+### 用户待优化项（memory_update.py，用户自行处理）
+1. `preferred_*` 偏好字段仅存在于 `AGENTS.md` 和死代码 `UserPreferences`，提取器不提取、提示词不驱动 → 文件实为"近期活动记录"而非"偏好文件"
+2. `AGENTS.md` 偏好文件示例缺 `recent_zones` 区块，与实际写入格式不符
+3. `_extract_entities` 手动 `find("{")` 抠 JSON，与文件头"使用 with_structured_output"注释不符
+4. 每次 `aafter_agent` 重新实例化 `MemoryUpdateMiddlewareTools`（可移到 `__init__`）
+5. 业务关键词/跳过词表硬编码在类里

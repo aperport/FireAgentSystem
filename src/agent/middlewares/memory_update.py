@@ -160,17 +160,17 @@ class MemoryUpdateMiddlewareTools:
         # 消防后勤场景实体提取
         prompt = f"""从以下消防后勤对话中提取关键实体。
 
-规则：
-1. "equipment": 对话中提及的消防设备名称（如：烟感探测器-01、喷淋泵、EPS电源）。未提及则为空列表。
-2. "zones": 对话中提及的建筑区域（如：B栋3层、ICU病房、A栋配电间）。未提及则为空列表。
-3. "query": 用户查询的一句话摘要。非消防相关问题则为空字符串。
+            规则：
+            1. "equipment": 对话中提及的消防设备名称（如：烟感探测器-01、喷淋泵、EPS电源）。未提及则为空列表。
+            2. "zones": 对话中提及的建筑区域（如：B栋3层、ICU病房、A栋配电间）。未提及则为空列表。
+            3. "query": 用户查询的一句话摘要。非消防相关问题则为空字符串。
 
-用户消息：{user_message}
+            用户消息：{user_message}
 
-AI回复摘要：{ai_summary}
+            AI回复摘要：{ai_summary}
 
-仅返回JSON对象，不要包含其他文字：
-{{"equipment": ["设备A", "设备B"], "zones": ["区域A"], "query": "简要摘要"}}"""
+            仅返回JSON对象，不要包含其他文字：
+            {{"equipment": ["设备A", "设备B"], "zones": ["区域A"], "query": "简要摘要"}}"""
 
         try:
             response = await model.ainvoke(prompt)

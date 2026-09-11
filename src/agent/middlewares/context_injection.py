@@ -12,10 +12,6 @@ Hook: before_agent / abefore_agent
     - 用户偏好文件路径: /memories/{user_id}/preferences.md
     - 提示 Agent 优先读取偏好文件了解用户习惯
 
-消防场景适配（相较于原采购项目）：
-    - 上下文类从 ProcurementContext 改为 FireLogisticsContext
-    - 去掉 preferred_currency（消防场景无货币偏好）
-    - 偏好文件中 recent_suppliers 改为 recent_equipment
 """
 
 from typing import Any
