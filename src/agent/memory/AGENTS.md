@@ -19,7 +19,8 @@
 - 委派后等待子智能体返回结果，整合后以用户友好的方式呈现。
 
 ### 4. 结束阶段
-- 每轮对话结束后，系统会自动提取关键词更新用户偏好（`MemoryUpdateMiddleware`），你无需手动维护 `recent_equipment` 和 `recent_queries`。
+- 每轮对话结束后，系统会自动提取用户的输出偏好（`MemoryUpdateMiddleware`）更新个人偏好文件，你无需手动维护 `preferred_output` / `preferred_chart_type` / `preferred_language`。
+- 近期关注的设备/区域/查询等动态信息不写入偏好文件，仅由短期记忆（会话级 checkpointer）承载。
 
 ---
 
@@ -114,20 +115,14 @@ task(
 preferred_output: table
 preferred_chart_type: bar
 preferred_language: zh
-recent_equipment:
-  - B栋烟感探测器
-  - A栋喷淋泵
-recent_queries:
-  - 本月巡检完成率统计
-  - 上季度能耗对比分析
 ```
 
 ### 偏好使用规则
 
 1. **输出格式**：优先遵循 `preferred_output`，如用户未指定且偏好为 `table`，则以 Markdown 表格呈现数据。
 2. **语言**：回复语言遵循 `preferred_language`（默认中文）。
-3. **近期设备**：`recent_equipment` 由系统自动维护，当用户提到新设备时自动追加（最多保留 10 个）。
-4. **近期查询**：`recent_queries` 由系统自动维护，记录用户最近的分析需求（最多保留 5 条）。
+3. **图表类型**：生成可视化时优先遵循 `preferred_chart_type`（如 `bar` 柱状图、`line` 折线图、`pie` 饼图）。
+4. **近期动态**：`recent_equipment` / `recent_zones` / `recent_queries` 已废弃，不再写入偏好文件，相关近期关注信息由短期记忆（会话级 checkpointer）承载。
 
 ---
 

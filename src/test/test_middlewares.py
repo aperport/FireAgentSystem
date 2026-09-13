@@ -3,19 +3,18 @@
 
 测试覆盖：
     1. ContextInjectionMiddleware — 用户信息注入 SystemMessage
-    2. MemoryUpdateMiddlewareTools — 关键词匹配 / 有意义判断 / AI摘要 / 实体提取
+    2. MemoryUpdateMiddlewareTools — 关键词匹配 / 有意义判断 / AI摘要 / 偏好提取
     3. MemoryUpdateMiddleware — 偏好更新全流程
     4. _merge_preferences — 偏好合并策略
 """
 
 import pytest
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage
 
 from agent.middlewares.context_injection import ContextInjectionMiddleware
-from agent.middlewares.memory_update import MemoryUpdateMiddleware, MemoryUpdateMiddlewareTools
+from agent.middlewares.memory_update import MemoryEntities, MemoryUpdateMiddleware, MemoryUpdateMiddlewareTools
 from test.conftest import make_human_message, make_ai_message, make_ai_message_with_task
 
 
@@ -44,23 +43,26 @@ class TestContextInjectionMiddleware:
         assert "张伟" in msg.content
         assert "/memories/test_user_001/preferences.md" in msg.content
 
-    def test_before_agent_includes_fire_domain_fields(self, mock_runtime):
-        """注入内容包含消防领域字段提示"""
+    def test_before_agent_includes_preference_fields(self, mock_runtime):
+        """注入内容包含个人偏好字段提示"""
         state = {"messages": []}
         result = self.middleware.before_agent(state, mock_runtime)
 
         msg = result["messages"][0]
-        # 确认提示中包含消防领域偏好字段
-        assert "recent_equipment" in msg.content
-        assert "recent_zones" in msg.content
-        assert "recent_queries" in msg.content
+        # 确认提示中包含个人偏好字段
+        assert "preferred_output" in msg.content
+        assert "preferred_chart_type" in msg.content
+        assert "preferred_language" in msg.content
 
-    def test_before_agent_no_currency_field(self, mock_runtime):
-        """注入内容不包含采购场景的 preferred_currency"""
+    def test_before_agent_no_deprecated_recent_fields(self, mock_runtime):
+        """注入内容不再包含已废弃的 recent_* 字段与采购字段"""
         state = {"messages": []}
         result = self.middleware.before_agent(state, mock_runtime)
 
         msg = result["messages"][0]
+        assert "recent_equipment" not in msg.content
+        assert "recent_zones" not in msg.content
+        assert "recent_queries" not in msg.content
         assert "preferred_currency" not in msg.content
         assert "recent_suppliers" not in msg.content
 
@@ -137,6 +139,13 @@ class TestMemoryUpdateMiddlewareTools:
         assert result is not None
         assert "故障" in result
 
+    def test_is_meaningful_with_preference_keyword(self):
+        """包含输出偏好表达的消息有意义（无需业务关键词）"""
+        for text in ["以后用表格展示", "请用折线图呈现", "用英文回复"]:
+            messages = [make_human_message(text)]
+            result = self.tools._is_meaningful_last(messages)
+            assert result is not None, f"'{text}' 应被视为有意义"
+
     def test_is_meaningful_skip_greeting(self):
         """打招呼消息应跳过"""
         for greeting in ["你好", "在吗", "谢谢", "好的", "知道了", "嗯", "哦", "hi", "hello", "ok", "thanks"]:
@@ -145,7 +154,7 @@ class TestMemoryUpdateMiddlewareTools:
             assert result is None, f"'{greeting}' 应被跳过"
 
     def test_is_meaningful_skip_non_fire_content(self):
-        """非消防无关消息应跳过"""
+        """无关内容（无业务关键词/偏好词/子Agent调用）应跳过"""
         messages = [make_human_message("今天天气怎么样？")]
         result = self.tools._is_meaningful_last(messages)
         assert result is None
@@ -217,53 +226,42 @@ class TestMemoryUpdateMiddlewareTools:
         result = self.tools._extract_ai_summary(messages)
         assert result == ""
 
-    # --- _extract_entities ---
+    # --- _extract_preferences ---
 
     @pytest.mark.asyncio
-    async def test_extract_entities_success(self, mock_llm):
-        """成功提取实体"""
-        result = await self.tools._extract_entities(mock_llm, "B栋3层烟感设备状态", "巡检完成率96.8%")
-        assert "equipment" in result
-        assert "zones" in result
-        assert "query" in result
-        assert "烟感探测器-01" in result["equipment"]
+    async def test_extract_preferences_success(self, mock_llm):
+        """成功提取输出偏好"""
+        result = await self.tools._extract_preferences(mock_llm, "请用表格展示巡检数据", "已完成")
+        assert "preferred_output" in result
+        assert "preferred_chart_type" in result
+        assert "preferred_language" in result
+        assert result["preferred_output"] == "table"
 
     @pytest.mark.asyncio
-    async def test_extract_entities_fire_domain_fields(self, mock_llm):
-        """实体提取结果为消防领域字段（equipment/zones/query），非采购字段"""
-        result = await self.tools._extract_entities(mock_llm, "测试消息", "测试摘要")
-        # 确认返回消防领域字段
-        assert "equipment" in result
-        assert "zones" in result
-        # 不应有采购字段
-        assert "suppliers" not in result
+    async def test_extract_preferences_preference_fields(self, mock_llm):
+        """偏好提取结果为个人偏好字段，不再包含实体/近期字段"""
+        result = await self.tools._extract_preferences(mock_llm, "测试消息", "测试摘要")
+        # 确认返回个人偏好字段
+        assert "preferred_output" in result
+        assert "preferred_chart_type" in result
+        assert "preferred_language" in result
+        # 不应有实体/近期字段
+        assert "equipment" not in result
+        assert "zones" not in result
+        assert "query" not in result
 
     @pytest.mark.asyncio
-    async def test_extract_entities_llm_failure(self):
-        """LLM 调用失败时返回空实体"""
+    async def test_extract_preferences_llm_failure(self):
+        """LLM 调用失败时返回空偏好"""
         failing_model = AsyncMock()
-        failing_model.ainvoke = AsyncMock(side_effect=Exception("LLM调用失败"))
+        structured = MagicMock()
+        structured.ainvoke = AsyncMock(side_effect=Exception("LLM调用失败"))
+        failing_model.with_structured_output = MagicMock(return_value=structured)
 
-        result = await self.tools._extract_entities(failing_model, "测试", "摘要")
-        assert result["equipment"] == []
-        assert result.get("zones", []) == []
-        assert result.get("query", "") == ""
-
-    # --- _create_file_value ---
-
-    def test_create_file_value(self):
-        """创建 StoreBackend 兼容的文件值"""
-        # 源码 _create_file_value 内部使用 datetime.timezone.utc，
-        # 此处 mock 掉 datetime.now 避免导入问题
-        from datetime import datetime, timezone
-        with patch("agent.middlewares.memory_update.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2026, 6, 14, 10, 0, 0, tzinfo=timezone.utc)
-            mock_dt.timezone = timezone
-            result = self.tools._create_file_value("line1\nline2\nline3")
-        assert "content" in result
-        assert "created_at" in result
-        assert "modified_at" in result
-        assert result["content"] == ["line1", "line2", "line3"]
+        result = await self.tools._extract_preferences(failing_model, "测试", "摘要")
+        assert result["preferred_output"] is None
+        assert result["preferred_chart_type"] is None
+        assert result["preferred_language"] is None
 
 
 # ============================================================
@@ -317,12 +315,18 @@ class TestMemoryUpdateMiddleware:
 
     @pytest.mark.asyncio
     async def test_aafter_agent_meaningful_message_triggers_update(self):
-        """有意义的消息触发偏好更新"""
+        """有意义的消息触发本地偏好更新"""
         # 构造 LLM mock
         mock_llm = AsyncMock()
-        response = MagicMock()
-        response.content = '{"equipment": ["烟感探测器-01"], "zones": ["B栋3层"], "query": "B栋3层烟感设备状态"}'
-        mock_llm.ainvoke = AsyncMock(return_value=response)
+        structured = MagicMock()
+        structured.ainvoke = AsyncMock(
+            return_value=MemoryEntities(
+                preferred_output="table",
+                preferred_chart_type="bar",
+                preferred_language="zh",
+            )
+        )
+        mock_llm.with_structured_output = MagicMock(return_value=structured)
 
         middleware = MemoryUpdateMiddleware(model=mock_llm)
 
@@ -332,37 +336,31 @@ class TestMemoryUpdateMiddleware:
         ctx.user_id = "test_user_001"
         ctx.username = "张伟"
         runtime.context = ctx
-        store = AsyncMock()
-        store.aget = AsyncMock(return_value=None)
-        store.aput = AsyncMock(return_value=None)
-        runtime.store = store
 
         # 用 MagicMock 模拟 state（支持 getattr 访问）
         state = MagicMock()
         state.messages = [
-            make_human_message("B栋3层烟感探测器状态怎么样"),
-            make_ai_message("B栋3层烟感探测器-01状态正常"),
+            make_human_message("以后都用表格展示巡检数据"),
+            make_ai_message("好的，后续将以表格形式展示"),
         ]
 
-        # patch _create_file_value 以规避源码中 datetime.timezone 的 bug
-        with patch(
-            "agent.middlewares.memory_update.MemoryUpdateMiddlewareTools._create_file_value",
-            return_value={
-                "content": ["recent_equipment:", "  - 烟感探测器-01", "", "recent_zones:", "  - B栋3层", "", "recent_queries:", "  - B栋3层烟感设备状态"],
-                "created_at": "2026-06-14T10:00:00+00:00",
-                "modified_at": "2026-06-14T10:00:00+00:00",
-            },
-        ):
+        with patch("agent.middlewares.memory_update.read_preferences", return_value=""), \
+             patch("agent.middlewares.memory_update.write_preferences") as mock_write:
             result = await middleware.aafter_agent(state, runtime)
 
         assert result is None  # aafter_agent 始终返回 None
-        store.aput.assert_called_once()
+        mock_write.assert_called_once()
+        write_user_id, write_content = mock_write.call_args[0]
+        assert write_user_id == "test_user_001"
+        assert "preferred_output: table" in write_content
+        assert "preferred_chart_type: bar" in write_content
+        assert "preferred_language: zh" in write_content
 
     @pytest.mark.asyncio
-    async def test_aafter_agent_empty_entities_skip_update(self, mock_runtime, mock_llm_empty):
-        """提取到空实体时跳过更新"""
+    async def test_aafter_agent_empty_preferences_skip_update(self, mock_runtime, mock_llm_empty):
+        """提取到空偏好时跳过更新"""
         middleware = MemoryUpdateMiddleware(model=mock_llm_empty)
-        # 即使匹配了关键词，如果实体提取结果为空也跳过
+        # 即使匹配了关键词，如果偏好提取结果为空也跳过
         state = MagicMock()
         state.messages = [
             make_human_message("能耗数据怎么样"),
@@ -373,9 +371,14 @@ class TestMemoryUpdateMiddleware:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_aafter_agent_no_store_skip(self):
-        """无 store 时跳过更新"""
+    async def test_aafter_agent_write_failure_skip(self):
+        """本地偏好文件写入失败时优雅跳过，不影响对话"""
         mock_llm = AsyncMock()
+        structured = MagicMock()
+        structured.ainvoke = AsyncMock(
+            return_value=MemoryEntities(preferred_output="table", preferred_chart_type=None, preferred_language=None)
+        )
+        mock_llm.with_structured_output = MagicMock(return_value=structured)
         middleware = MemoryUpdateMiddleware(model=mock_llm)
 
         runtime = MagicMock()
@@ -383,16 +386,21 @@ class TestMemoryUpdateMiddleware:
         ctx.user_id = "test_user"
         ctx.username = "测试"
         runtime.context = ctx
-        runtime.store = None  # 无 store
 
         state = MagicMock()
         state.messages = [
-            make_human_message("巡检完成率怎么样"),
-            make_ai_message("完成率96.8%"),
+            make_human_message("用表格展示巡检结果"),
+            make_ai_message("好的"),
         ]
 
-        result = await middleware.aafter_agent(state, runtime)
-        assert result is None
+        with patch("agent.middlewares.memory_update.read_preferences", return_value=""), \
+             patch(
+                 "agent.middlewares.memory_update.write_preferences",
+                 side_effect=OSError("磁盘写入失败"),
+             ):
+            result = await middleware.aafter_agent(state, runtime)
+
+        assert result is None  # 异常被捕获，优雅跳过
 
 
 # ============================================================
@@ -410,27 +418,72 @@ class TestMergePreferences:
         """从空偏好文件开始合并"""
         result = self.middleware._merge_preferences(
             current_lines=[],
-            new_equipment=["烟感探测器-01"],
-            new_zones=["B栋3层"],
-            new_query="查询烟感设备状态",
+            preferred_output="table",
+            preferred_chart_type="bar",
+            preferred_language="zh",
         )
-        assert "recent_equipment:" in result
-        assert "烟感探测器-01" in result
-        assert "recent_zones:" in result
-        assert "B栋3层" in result
-        assert "recent_queries:" in result
-        assert "查询烟感设备状态" in result
+        assert "preferred_output: table" in result
+        assert "preferred_chart_type: bar" in result
+        assert "preferred_language: zh" in result
 
-    def test_merge_adds_new_equipment(self):
-        """合并新增设备"""
+    def test_merge_into_empty_preferences_all_none(self):
+        """全部偏好为空时返回空文件"""
+        result = self.middleware._merge_preferences(
+            current_lines=[],
+            preferred_output=None,
+            preferred_chart_type=None,
+            preferred_language=None,
+        )
+        assert result == "\n"
+
+    def test_merge_new_value_overrides_old(self):
+        """新偏好值覆盖旧值"""
+        current_lines = [
+            "preferred_output: table",
+            "preferred_chart_type: pie",
+            "preferred_language: en",
+        ]
+
+        result = self.middleware._merge_preferences(
+            current_lines=current_lines,
+            preferred_output="chart",
+            preferred_chart_type=None,
+            preferred_language=None,
+        )
+
+        # 新值覆盖旧值，未变更的字段保留旧值
+        assert "preferred_output: chart" in result
+        assert "preferred_chart_type: pie" in result
+        assert "preferred_language: en" in result
+        # 旧值不应残留
+        assert "preferred_output: table" not in result
+
+    def test_merge_empty_new_value_keeps_old(self):
+        """新增值为空时保留旧值"""
+        current_lines = [
+            "preferred_output: table",
+        ]
+
+        result = self.middleware._merge_preferences(
+            current_lines=current_lines,
+            preferred_output=None,
+            preferred_chart_type=None,
+            preferred_language=None,
+        )
+
+        assert "preferred_output: table" in result
+
+    def test_merge_cleans_deprecated_recent_fields(self):
+        """合并时清理已废弃的 recent_* 区块"""
         current_lines = [
             "preferred_output: table",
             "",
             "recent_equipment:",
+            "  - 烟感探测器-01",
             "  - 喷淋泵-01",
             "",
             "recent_zones:",
-            "  - A栋地下1层",
+            "  - A栋2层",
             "",
             "recent_queries:",
             "  - 上月巡检完成率",
@@ -438,190 +491,39 @@ class TestMergePreferences:
 
         result = self.middleware._merge_preferences(
             current_lines=current_lines,
-            new_equipment=["烟感探测器-01"],
-            new_zones=["B栋3层"],
-            new_query="B栋3层烟感设备状态",
+            preferred_output=None,
+            preferred_chart_type="bar",
+            preferred_language=None,
         )
 
-        # 新设备排在前面
-        assert "烟感探测器-01" in result
-        # 旧设备保留
-        assert "喷淋泵-01" in result
+        assert "preferred_output: table" in result
+        assert "preferred_chart_type: bar" in result
+        # 废弃区块应被清除
+        assert "recent_equipment" not in result
+        assert "recent_zones" not in result
+        assert "recent_queries" not in result
+        assert "烟感探测器-01" not in result
 
-    def test_merge_deduplicates_equipment(self):
-        """合并时去重设备"""
+    def test_merge_preserves_other_content(self):
+        """合并时保留偏好字段之外的内容"""
         current_lines = [
-            "recent_equipment:",
-            "  - 烟感探测器-01",
-            "  - 喷淋泵-01",
+            "# 用户备注",
+            "关注重点区域: 手术室/ICU",
             "",
-            "recent_zones: []",
-            "",
-            "recent_queries: []",
-        ]
-
-        result = self.middleware._merge_preferences(
-            current_lines=current_lines,
-            new_equipment=["烟感探测器-01"],  # 重复
-            new_zones=[],
-            new_query="",
-        )
-
-        # 烟感探测器-01 应只出现一次
-        assert result.count("烟感探测器-01") == 1
-
-    def test_merge_equipment_cap_at_10(self):
-        """设备列表最多10个"""
-        current_lines = [
-            "recent_equipment:",
-        ] + [f"  - 设备-{i:02d}" for i in range(10)]
-
-        # 加上当前行格式
-        current_lines.extend(["", "recent_zones: []", "", "recent_queries: []"])
-
-        result = self.middleware._merge_preferences(
-            current_lines=current_lines,
-            new_equipment=["新设备-A"],
-            new_zones=[],
-            new_query="新查询",
-        )
-
-        # 设备数量不应超过10
-        equipment_lines = [l for l in result.split("\n") if l.strip().startswith("- ")]
-        # 统计 recent_equipment 区块下的项
-        in_equipment_block = False
-        count = 0
-        for line in result.split("\n"):
-            if line.strip().startswith("recent_equipment:"):
-                in_equipment_block = True
-                continue
-            if in_equipment_block:
-                if line.strip().startswith("- "):
-                    count += 1
-                elif line.strip() and not line.startswith(" "):
-                    break
-        assert count <= 10
-
-    def test_merge_zones_cap_at_5(self):
-        """区域列表最多5个"""
-        current_lines = [
-            "recent_equipment: []",
-            "",
-            "recent_zones:",
-        ] + [f"  - 区域-{i}" for i in range(5)]
-        current_lines.extend(["", "recent_queries: []"])
-
-        result = self.middleware._merge_preferences(
-            current_lines=current_lines,
-            new_equipment=[],
-            new_zones=["新区域-X"],
-            new_query="",
-        )
-
-        # 统计区域项数
-        in_zones_block = False
-        count = 0
-        for line in result.split("\n"):
-            if line.strip().startswith("recent_zones:"):
-                in_zones_block = True
-                continue
-            if in_zones_block:
-                if line.strip().startswith("- "):
-                    count += 1
-                elif line.strip() and not line.startswith(" "):
-                    break
-        assert count <= 5
-
-    def test_merge_queries_cap_at_5(self):
-        """查询列表最多5个"""
-        current_lines = [
-            "recent_equipment: []",
-            "",
-            "recent_zones: []",
-            "",
-            "recent_queries:",
-        ] + [f"  - 查询{i}" for i in range(5)]
-
-        result = self.middleware._merge_preferences(
-            current_lines=current_lines,
-            new_equipment=[],
-            new_zones=[],
-            new_query="新查询",
-        )
-
-        # 统计查询项数
-        in_queries_block = False
-        count = 0
-        for line in result.split("\n"):
-            if line.strip().startswith("recent_queries:"):
-                in_queries_block = True
-                continue
-            if in_queries_block:
-                if line.strip().startswith("- "):
-                    count += 1
-                elif line.strip() and not line.startswith(" "):
-                    break
-        assert count <= 5
-
-    def test_merge_inline_format(self):
-        """合并时支持 inline 格式 (recent_equipment: [a, b])"""
-        current_lines = [
-            "recent_equipment: [喷淋泵-01, 消火栓-08]",
-            "recent_zones: [A栋2层]",
-            "recent_queries: [上月巡检完成率]",
-        ]
-
-        result = self.middleware._merge_preferences(
-            current_lines=current_lines,
-            new_equipment=["烟感探测器-01"],
-            new_zones=["B栋3层"],
-            new_query="本月故障记录",
-        )
-
-        assert "烟感探测器-01" in result
-        assert "喷淋泵-01" in result
-
-    def test_merge_empty_new_values(self):
-        """新增值为空时保留旧值"""
-        current_lines = [
-            "recent_equipment:",
-            "  - 喷淋泵-01",
-            "",
-            "recent_zones: []",
-            "",
-            "recent_queries: []",
-        ]
-
-        result = self.middleware._merge_preferences(
-            current_lines=current_lines,
-            new_equipment=[],
-            new_zones=[],
-            new_query="",
-        )
-
-        # 旧设备应保留（空新增不会清除旧值）
-        assert "喷淋泵-01" in result
-
-    def test_merge_preserves_non_preference_content(self):
-        """合并时保留偏好区块之外的内容"""
-        current_lines = [
             "preferred_output: table",
             "preferred_language: zh",
-            "",
-            "recent_equipment: []",
-            "",
-            "recent_zones: []",
-            "",
-            "recent_queries: []",
         ]
 
         result = self.middleware._merge_preferences(
             current_lines=current_lines,
-            new_equipment=["烟感探测器-01"],
-            new_zones=["B栋3层"],
-            new_query="测试查询",
+            preferred_output=None,
+            preferred_chart_type="line",
+            preferred_language=None,
         )
 
-        # 非偏好区块内容保留
+        # 非偏好字段内容保留
+        assert "# 用户备注" in result
+        assert "关注重点区域: 手术室/ICU" in result
         assert "preferred_output: table" in result
+        assert "preferred_chart_type: line" in result
         assert "preferred_language: zh" in result

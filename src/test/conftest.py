@@ -10,6 +10,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
+from agent.middlewares.memory_update import MemoryEntities
+
 
 @pytest.fixture
 def mock_runtime():
@@ -64,17 +66,8 @@ def mock_store_with_preferences():
     preferences_content = {
         "content": [
             "preferred_output: table",
+            "preferred_chart_type: bar",
             "preferred_language: zh",
-            "",
-            "recent_equipment:",
-            "  - 消火栓-08",
-            "  - 喷淋泵-01",
-            "",
-            "recent_zones:",
-            "  - A栋2层",
-            "",
-            "recent_queries:",
-            "  - 上月巡检完成率",
         ],
         "created_at": "2026-06-01T00:00:00+00:00",
         "modified_at": "2026-06-01T00:00:00+00:00",
@@ -94,21 +87,29 @@ def mock_llm():
     """模拟 BaseChatModel，返回固定的实体提取结果"""
     model = AsyncMock()
 
-    # 模拟 ainvoke 返回的 response
-    response = MagicMock()
-    response.content = '{"equipment": ["烟感探测器-01", "喷淋泵-01"], "zones": ["B栋3层"], "query": "查询B栋3层烟感设备状态"}'
-    model.ainvoke = AsyncMock(return_value=response)
+    # 模拟 with_structured_output 返回的结构化输出链
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(
+        return_value=MemoryEntities(
+            preferred_output="table",
+            preferred_chart_type="bar",
+            preferred_language="zh",
+        )
+    )
+    model.with_structured_output = MagicMock(return_value=structured)
 
     return model
 
 
 @pytest.fixture
 def mock_llm_empty():
-    """模拟返回空实体的 LLM"""
+    """模拟返回空偏好的 LLM"""
     model = AsyncMock()
-    response = MagicMock()
-    response.content = '{"equipment": [], "zones": [], "query": ""}'
-    model.ainvoke = AsyncMock(return_value=response)
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(
+        return_value=MemoryEntities(preferred_output=None, preferred_chart_type=None, preferred_language=None)
+    )
+    model.with_structured_output = MagicMock(return_value=structured)
     return model
 
 

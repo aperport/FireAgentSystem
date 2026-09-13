@@ -42,14 +42,6 @@ class UserPreferences:
     preferred_output: str | None = None  # 'table' 或 'chart'
     preferred_chart_type: str | None = None  # 'bar', 'line', 'pie' 等
     preferred_language: str | None = None  # 'zh', 'en' 等
-    recent_equipment: list[str] | None = None  # 近期关注的消防设备
-    recent_zones: list[str] | None = None  # 近期关注的建筑区域
-    recent_queries: list[str] | None = None  # 近期分析需求摘要列表
-
-    def __post_init__(self):
-        self.recent_equipment = self.recent_equipment or []
-        self.recent_zones = self.recent_zones or []
-        self.recent_queries = self.recent_queries or []
 
 
 class ChatRequest(BaseModel):

@@ -35,6 +35,10 @@ EXAMPLE_DIR = Path(__file__).parent.parent
 
 LOCAL_AGENTS_MD = EXAMPLE_DIR / "agent/memory/AGENTS.md"
 
+# 本地用户偏好存储目录（替代沙箱/StoreBackend 持久化）
+# 偏好文件路径约定：{LOCAL_MEMORY_DIR}/{user_id}/preferences.md
+LOCAL_MEMORY_DIR = EXAMPLE_DIR.parent / "data" / "memories"
+
 SCOPE_MAP = {
     "main": "main",
     "fire-qa-assistant": "qa",

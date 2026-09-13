@@ -22,7 +22,7 @@ import os
 import sys
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StoreBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend
 from langchain.agents.middleware import (
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
@@ -31,7 +31,7 @@ from langchain.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from agent.backends.sandbox_setup import setup_sandbox
-from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, STORE, SUMMARY_MODEL
+from agent.config import CHECKPOINT, LOCAL_AGENTS_MD, LOCAL_MEMORY_DIR, STORE, SUMMARY_MODEL
 from agent.memory.prompts import system_prompt
 from agent.middleware_config import create_analyst_middleware
 from agent.middlewares.context_injection import ContextInjectionMiddleware
@@ -111,11 +111,11 @@ async def create_main_agent(
         return CompositeBackend(
             default=sandbox_backend,  # 默认：沙箱文件系统
             routes={
-                "/memories/": StoreBackend(
-                    # runtime=rt,                       # 该参数已废弃，无需传入
-                    namespace=lambda r: (
-                        getattr(r.context, "user_id", "TEST"),
-                    ),  # 用户偏好持久化 ，从上下文（类）中取出user_id，取不到用TEST    字典:dict.get(key, default)
+                # 用户偏好本地持久化（data/memories/{user_id}/preferences.md），
+                # 由 FilesystemBackend 按 virtual_mode 限制在 LOCAL_MEMORY_DIR 内
+                "/memories/": FilesystemBackend(
+                    root_dir=LOCAL_MEMORY_DIR,
+                    virtual_mode=True,
                 ),
                 # "/persisted-skills/": StoreBackend(
                 #     runtime=rt,
@@ -179,7 +179,7 @@ async def create_main_agent(
             model=SUMMARY_MODEL,
             system_prompt=system_prompt,
             # skills= ["/skills/main/"],            # 暂不使用skills
-            memory=["/memories/"],  # 用户记忆存储路径（偏好、历史等，由StoreBackend按user_id隔离），上传之后的路径
+            memory=["/memories/"],  # 用户记忆存储路径（偏好、历史等，由本地FilesystemBackend按user_id隔离），上传之后的路径
             tools=available_tools,  # 工具，来源很多，可以是MCP工具（有三种传输方式），也可以是自定义工具
             subagents=subagents,  # 子智能体，类型subagent类型，即字典，里面含有name、description、system_prompt、tool字段，存在校验；另一种是CompiledSubAgent，即langgraph的智能体组合。
             middleware=main_mid,  # 中间件。  # pyright: ignore[reportArgumentType]

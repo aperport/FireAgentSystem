@@ -72,45 +72,33 @@ class TestUserPreferences:
     """用户偏好测试 — 消防场景字段替代原采购字段"""
 
     def test_all_defaults_none(self):
-        """所有字段默认为 None（__post_init__ 会修正列表字段）"""
+        """所有字段默认为 None"""
         pref = UserPreferences()
         assert pref.preferred_output is None
         assert pref.preferred_chart_type is None
         assert pref.preferred_language is None
-        # __post_init__ 将 None 列表字段转为空列表
-        assert pref.recent_equipment == []
-        assert pref.recent_zones == []
-        assert pref.recent_queries == []
 
-    def test_post_init_converts_none_lists(self):
-        """__post_init__ 将 None 的列表字段转为空列表"""
+    def test_post_init_accepts_common_fields(self):
+        """常用偏好字段可正常赋值"""
         pref = UserPreferences(
             preferred_output="table",
-            recent_equipment=None,
-            recent_zones=None,
-            recent_queries=None,
+            preferred_chart_type="bar",
+            preferred_language="zh",
         )
-        assert pref.recent_equipment == []
-        assert pref.recent_zones == []
-        assert pref.recent_queries == []
-
-    def test_post_init_preserves_existing_lists(self):
-        """__post_init__ 保留已赋值的列表"""
-        pref = UserPreferences(
-            recent_equipment=["烟感探测器-01", "喷淋泵-01"],
-            recent_zones=["B栋3层", "ICU病房"],
-            recent_queries=["本月巡检完成率"],
-        )
-        assert pref.recent_equipment == ["烟感探测器-01", "喷淋泵-01"]
-        assert pref.recent_zones == ["B栋3层", "ICU病房"]
-        assert pref.recent_queries == ["本月巡检完成率"]
+        assert pref.preferred_output == "table"
+        assert pref.preferred_chart_type == "bar"
+        assert pref.preferred_language == "zh"
 
     def test_fire_domain_fields_present(self):
-        """确认消防领域字段存在"""
+        """确认个人偏好字段存在，且不再有近期动态字段"""
         pref = UserPreferences()
-        assert hasattr(pref, "recent_equipment")
-        assert hasattr(pref, "recent_zones")
-        assert hasattr(pref, "recent_queries")
+        assert hasattr(pref, "preferred_output")
+        assert hasattr(pref, "preferred_chart_type")
+        assert hasattr(pref, "preferred_language")
+        # recent_* 已废弃，不再作为偏好字段
+        assert not hasattr(pref, "recent_equipment")
+        assert not hasattr(pref, "recent_zones")
+        assert not hasattr(pref, "recent_queries")
 
     def test_no_procurement_fields(self):
         """确认不再有原采购项目的字段"""

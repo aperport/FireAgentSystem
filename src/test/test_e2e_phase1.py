@@ -33,6 +33,7 @@ from agent.mcp_tools_bean import (
 )
 from agent.schema import FireLogisticsContext, UserPreferences
 from agent.middlewares.context_injection import ContextInjectionMiddleware
+from agent.middlewares.memory_update import MemoryEntities
 from agent.middlewares.memory_update import MemoryUpdateMiddleware, MemoryUpdateMiddlewareTools
 from agent.subagents.read_yaml import load_yaml, resolve_tools
 from test.conftest import make_human_message, make_ai_message
@@ -265,62 +266,70 @@ class TestMiddlewareIntegration:
 
         # Step 3: 记忆更新
         mock_llm = AsyncMock()
-        response = MagicMock()
-        response.content = '{"equipment": ["烟感探测器-01"], "zones": ["B栋3层"], "query": "B栋3层巡检完成率"}'
-        mock_llm.ainvoke = AsyncMock(return_value=response)
+        structured = MagicMock()
+        structured.ainvoke = AsyncMock(
+            return_value=MemoryEntities(
+                preferred_output="table",
+                preferred_chart_type="bar",
+                preferred_language="zh",
+            )
+        )
+        mock_llm.with_structured_output = MagicMock(return_value=structured)
 
         mu_middleware = MemoryUpdateMiddleware(model=mock_llm)
 
-        # patch _create_file_value 以规避源码中 datetime.timezone 的 bug
-        with patch(
-            "agent.middlewares.memory_update.MemoryUpdateMiddlewareTools._create_file_value",
-            return_value={
-                "content": ["recent_equipment:", "  - 烟感探测器-01", "", "recent_zones:", "  - B栋3层", "", "recent_queries:", "  - B栋3层巡检完成率"],
-                "created_at": "2026-06-14T10:00:00+00:00",
-                "modified_at": "2026-06-14T10:00:00+00:00",
-            },
-        ):
+        with patch("agent.middlewares.memory_update.read_preferences", return_value=""), \
+             patch("agent.middlewares.memory_update.write_preferences") as mock_write:
             result = await mu_middleware.aafter_agent(state_with_conversation, mock_runtime)
 
-        # 记忆更新成功，store.aput 被调用
+        # 记忆更新成功，本地偏好文件被写入
         assert result is None  # aafter_agent 始终返回 None
-        mock_runtime.store.aput.assert_called_once()
+        mock_write.assert_called_once()
+        write_user_id, write_content = mock_write.call_args[0]
+        assert write_user_id == "test_user_001"
+        assert "preferred_output: table" in write_content
+        assert "preferred_chart_type: bar" in write_content
+        assert "preferred_language: zh" in write_content
 
     @pytest.mark.asyncio
     async def test_memory_update_with_existing_preferences(self, mock_runtime, mock_store_with_preferences):
-        """记忆更新与已有偏好合并"""
-        store, existing_pref = mock_store_with_preferences
-        mock_runtime.store = store
+        """记忆更新与已有偏好合并（本地文件）"""
+        _, existing_pref = mock_store_with_preferences
+        existing_text = "\n".join(existing_pref["content"])
 
-        # 设置 LLM 返回消防实体
+        # 设置 LLM 返回消防偏好
         mock_llm = AsyncMock()
-        response = MagicMock()
-        response.content = '{"equipment": ["烟感探测器-01"], "zones": ["B栋3层"], "query": "B栋3层设备状态"}'
-        mock_llm.ainvoke = AsyncMock(return_value=response)
+        structured = MagicMock()
+        structured.ainvoke = AsyncMock(
+            return_value=MemoryEntities(
+                preferred_output="chart",
+                preferred_chart_type="line",
+                preferred_language=None,
+            )
+        )
+        mock_llm.with_structured_output = MagicMock(return_value=structured)
 
         mu_middleware = MemoryUpdateMiddleware(model=mock_llm)
         state = MagicMock()
         state.messages = [
-            make_human_message("B栋3层烟感设备状态怎么样"),
-            make_ai_message("B栋3层烟感探测器-01状态正常"),
+            make_human_message("请用折线图展示能耗趋势"),
+            make_ai_message("好的，将以折线图呈现"),
         ]
 
-        with patch(
-            "agent.middlewares.memory_update.MemoryUpdateMiddlewareTools._create_file_value",
-            return_value={
-                "content": ["recent_equipment:", "  - 烟感探测器-01", "", "recent_zones:", "  - B栋3层", "", "recent_queries:", "  - B栋3层设备状态"],
-                "created_at": "2026-06-14T10:00:00+00:00",
-                "modified_at": "2026-06-14T10:00:00+00:00",
-            },
-        ):
+        with patch("agent.middlewares.memory_update.read_preferences", return_value=existing_text), \
+             patch("agent.middlewares.memory_update.write_preferences") as mock_write:
             result = await mu_middleware.aafter_agent(state, mock_runtime)
         assert result is None
 
-        # 验证 aput 被调用（偏好已更新）
-        store.aput.assert_called_once()
-        call_args = store.aput.call_args
-        # 验证 namespace 包含 user_id
-        assert call_args[0][0] == ("test_user_001",)
+        # 验证本地偏好文件被写入（偏好已更新）
+        mock_write.assert_called_once()
+        write_user_id, write_content = mock_write.call_args[0]
+        assert write_user_id == "test_user_001"
+        # 新偏好覆盖旧偏好
+        assert "preferred_output: chart" in write_content
+        assert "preferred_chart_type: line" in write_content
+        # 未变更的旧偏好保留（语言）
+        assert "preferred_language: zh" in write_content
 
 
 # ============================================================
@@ -426,25 +435,30 @@ class TestSchemaIntegration:
         pref_path = f"/memories/{ctx.user_id}/preferences.md"
         assert pref_path == "/memories/user_fire_001/preferences.md"
 
-    def test_preferences_support_fire_domain_equipment(self):
-        """UserPreferences 支持消防设备列表"""
+    def test_preferences_support_fire_domain_preferences(self):
+        """UserPreferences 支持消防场景个人偏好"""
         pref = UserPreferences(
-            recent_equipment=["烟感探测器-01", "喷淋泵-01", "EPS电源-01"],
-            recent_zones=["B栋3层", "ICU病房"],
-            recent_queries=["本月巡检完成率", "EPS电源故障影响"],
+            preferred_output="chart",
+            preferred_chart_type="bar",
+            preferred_language="zh",
         )
-        assert len(pref.recent_equipment) == 3
-        assert len(pref.recent_zones) == 2
-        assert len(pref.recent_queries) == 2
+        assert pref.preferred_output == "chart"
+        assert pref.preferred_chart_type == "bar"
+        assert pref.preferred_language == "zh"
 
     def test_preferences_no_procurement_remnants(self):
-        """UserPreferences 完全移除采购字段"""
+        """UserPreferences 完全移除采购字段，且不再承载近期动态字段"""
         pref = UserPreferences()
         # 不应有采购相关字段
         assert not hasattr(pref, "preferred_currency")
         assert not hasattr(pref, "recent_suppliers")
 
-        # 消防领域字段存在
-        assert hasattr(pref, "recent_equipment")
-        assert hasattr(pref, "recent_zones")
-        assert hasattr(pref, "recent_queries")
+        # 个人偏好字段存在
+        assert hasattr(pref, "preferred_output")
+        assert hasattr(pref, "preferred_chart_type")
+        assert hasattr(pref, "preferred_language")
+
+        # recent_* 已废弃，不再作为偏好字段
+        assert not hasattr(pref, "recent_equipment")
+        assert not hasattr(pref, "recent_zones")
+        assert not hasattr(pref, "recent_queries")
